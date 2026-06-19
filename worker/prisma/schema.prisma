@@ -1,0 +1,84 @@
+datasource db {
+  provider = "sqlite"
+  url      = "file:../../backend/prisma/dev.db"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id             String             @id @default(uuid())
+  email          String             @unique
+  passwordHash   String
+  name           String?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  
+  // Configurações de Afiliado
+  amazonId       String?
+  shopeeId       String?
+  mercadolivreId String?
+  
+  // Relações
+  instances      WhatsappInstance[]
+  mappings       GroupMapping[]
+  logs           Log[]
+}
+
+model WhatsappInstance {
+  id          String         @id @default(uuid())
+  name        String         // Identificador amigável da conexão (ex: "Número Comercial 1")
+  phone       String?        // Número do WhatsApp associado após a conexão
+  status      String         @default("DISCONNECTED")
+  qrCode      String?        // QR Code atual em formato Base64 ou texto bruto
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  
+  // Relação com Usuário
+  userId      String
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Mapeamentos associados a esta instância de disparo/escuta
+  mappings    GroupMapping[]
+  logs        Log[]
+}
+
+model GroupMapping {
+  id              String           @id @default(uuid())
+  name            String           // Nome da regra de mapeamento
+  sourceGroupId   String           // ID do grupo de origem (JID do WhatsApp, ex: "12036302@g.us")
+  sourceGroupName String?          // Nome amigável do grupo de origem
+  destGroupIds    String           // Lista de IDs dos grupos de destino (JIDs, separados por vírgula)
+  isActive        Boolean          @default(true)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  
+  // Relações
+  userId          String
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  instanceId      String
+  instance        WhatsappInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+}
+
+model Log {
+  id              String           @id @default(uuid())
+  originalUrl     String
+  convertedUrl    String?
+  title           String?
+  price           String?
+  imageUrl        String?
+  status          String           @default("CAPTURED")
+  errorMessage    String?
+  sourceGroup     String?          // ID do grupo de origem se capturado automaticamente
+  destGroups      String?          // IDs dos grupos para onde foi enviado (separados por vírgula)
+  createdAt       DateTime         @default(now())
+  
+  // Relações
+  userId          String
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  instanceId      String
+  instance        WhatsappInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+}
