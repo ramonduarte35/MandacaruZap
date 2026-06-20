@@ -22,12 +22,23 @@ async function main() {
         name: 'Admin Duarte',
         amazonId: 'ramonamazon-20',
         shopeeId: 'ramonshopee_aff',
-        mercadolivreId: 'ramonml_aff'
+        mercadolivreId: 'ramonml_aff',
+        mercadolivreChannel: 'ramonduarte1',
+        mercadolivreTool: '85424440',
+        mercadolivreWord: 'ramonduarte'
       }
     });
     console.log(`User created: ${user.email}`);
   } else {
-    console.log(`User already exists: ${user.email}`);
+    user = await prisma.user.update({
+      where: { email },
+      data: {
+        mercadolivreChannel: 'ramonduarte1',
+        mercadolivreTool: '85424440',
+        mercadolivreWord: 'ramonduarte'
+      }
+    });
+    console.log(`User updated: ${user.email}`);
   }
 
   // 2. Cria instância mockada de WhatsApp

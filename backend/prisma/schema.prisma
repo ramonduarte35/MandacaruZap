@@ -19,6 +19,10 @@ model User {
   amazonId       String?
   shopeeId       String?
   mercadolivreId String?
+  mercadolivreChannel String?
+  mercadolivreTool    String?
+  mercadolivreWord    String?
+  mercadolivreCookie  String?
   
   // Relações
   instances      WhatsappInstance[]

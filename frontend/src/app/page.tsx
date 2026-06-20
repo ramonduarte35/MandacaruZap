@@ -58,8 +58,15 @@ export default function Dashboard() {
   const [amazonId, setAmazonId] = useState('');
   const [shopeeId, setShopeeId] = useState('');
   const [mercadolivreId, setMercadolivreId] = useState('');
+  const [mercadolivreChannel, setMercadolivreChannel] = useState('');
+  const [mercadolivreTool, setMercadolivreTool] = useState('');
+  const [mercadolivreWord, setMercadolivreWord] = useState('');
+  const [mercadolivreCookie, setMercadolivreCookie] = useState('');
+  const [meliAvailableTags, setMeliAvailableTags] = useState<string[]>([]);
+  const [isFetchingTags, setIsFetchingTags] = useState(false);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [settingsSavedMessage, setSettingsSavedMessage] = useState(false);
+
   
   // Estados Dinâmicos
   const [instances, setInstances] = useState<Instance[]>([]);
@@ -91,6 +98,27 @@ export default function Dashboard() {
   // Grupos ativos da instância selecionada
   const [activeGroups, setActiveGroups] = useState<{ id: string, name: string }[]>([]);
   const [isLoadingGroups, setIsLoadingGroups] = useState(false);
+
+  const fetchMeliTags = async () => {
+    setIsFetchingTags(true);
+    try {
+      const res = await fetch(`${API_URL}/api/affiliate/meli-tags`);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.tags) && data.tags.length > 0) {
+          setMeliAvailableTags(data.tags);
+          // Se o canal atual não existe na lista, usa a primeira tag disponível
+          if (!mercadolivreChannel || !data.tags.includes(mercadolivreChannel)) {
+            setMercadolivreChannel(data.tags[0]);
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Erro ao buscar tags ML:', e);
+    } finally {
+      setIsFetchingTags(false);
+    }
+  };
 
   const fetchGroups = async (instanceId: string) => {
     if (!instanceId) {
@@ -175,6 +203,10 @@ export default function Dashboard() {
           setAmazonId(data.amazonId || '');
           setShopeeId(data.shopeeId || '');
           setMercadolivreId(data.mercadolivreId || '');
+          setMercadolivreChannel(data.mercadolivreChannel || '');
+          setMercadolivreTool(data.mercadolivreTool || '');
+          setMercadolivreWord(data.mercadolivreWord || '');
+          setMercadolivreCookie(data.mercadolivreCookie || '');
         }
       }
     } catch (err) {
@@ -194,7 +226,11 @@ export default function Dashboard() {
         body: JSON.stringify({
           amazonId,
           shopeeId,
-          mercadolivreId
+          mercadolivreId,
+          mercadolivreChannel,
+          mercadolivreTool,
+          mercadolivreWord,
+          mercadolivreCookie
         })
       });
       if (res.ok) {
@@ -887,18 +923,103 @@ export default function Dashboard() {
                   />
                 </div>
 
-                <div>
-                  <label className="block text-xs text-gray-400 font-semibold mb-2 flex items-center justify-between">
-                    <span>Mercado Livre Custom ID (customId)</span>
-                    <span className="text-[10px] text-gray-500 font-normal">Ex: seunome_aff</span>
-                  </label>
-                  <input 
-                    type="text" 
-                    placeholder="Ex: seunome_aff"
-                    value={mercadolivreId}
-                    onChange={(e) => setMercadolivreId(e.target.value)}
-                    className="w-full bg-[#0d0e12] border border-gray-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-all text-gray-200"
-                  />
+                <div className="border-t border-gray-800 pt-4 mt-2">
+                  <h3 className="text-xs font-semibold text-emerald-400 mb-3 uppercase tracking-wider">Mercado Livre (Gerador via Cookies - Recomendado)</h3>
+                  
+                  <div className="mb-4">
+                    <label className="block text-xs text-gray-400 font-semibold mb-2 flex items-center justify-between">
+                      <span>Cookies de Sessão do Mercado Livre</span>
+                      <span className="text-[10px] text-gray-500 font-normal">Copie os cookies de login do Portal de Afiliados</span>
+                    </label>
+                    <textarea 
+                      placeholder="Cole aqui os cookies de sessão obtidos do Portal (ex: _csrf=...; ssid=...)"
+                      value={mercadolivreCookie}
+                      onChange={(e) => setMercadolivreCookie(e.target.value)}
+                      onBlur={fetchMeliTags}
+                      rows={3}
+                      className="w-full bg-[#0d0e12] border border-gray-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-all text-gray-200 font-mono text-xs resize-y"
+                    />
+                    {isFetchingTags && (
+                      <p className="text-[10px] text-emerald-400 mt-1 animate-pulse">Buscando etiquetas disponíveis...</p>
+                    )}
+                    {meliAvailableTags.length > 0 && !isFetchingTags && (
+                      <p className="text-[10px] text-emerald-500 mt-1">✅ {meliAvailableTags.length} etiqueta(s) encontrada(s): {meliAvailableTags.join(', ')}</p>
+                    )}
+
+                  </div>
+
+                  <h3 className="text-xs font-semibold text-gray-400 mb-3 uppercase tracking-wider">Mercado Livre (Fallback / Canais Sociais)</h3>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                    <div>
+                      <label className="block text-xs text-gray-400 font-semibold mb-2 flex items-center justify-between">
+                        <span>Etiqueta (Tag) Ativa</span>
+                        <span className="text-[10px] text-gray-500 font-normal">Ex: ramonduarte</span>
+                      </label>
+                      {meliAvailableTags.length > 0 ? (
+                        <select
+                          value={mercadolivreChannel}
+                          onChange={(e) => setMercadolivreChannel(e.target.value)}
+                          className="w-full bg-[#0d0e12] border border-emerald-600 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-all text-gray-200"
+                        >
+                          {meliAvailableTags.map(tag => (
+                            <option key={tag} value={tag}>{tag}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input 
+                          type="text" 
+                          placeholder="Nome do canal (cole o cookie primeiro)"
+                          value={mercadolivreChannel}
+                          onChange={(e) => setMercadolivreChannel(e.target.value)}
+                          className="w-full bg-[#0d0e12] border border-gray-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-all text-gray-200"
+                        />
+                      )}
+
+                    </div>
+
+                    <div>
+                      <label className="block text-xs text-gray-400 font-semibold mb-2 flex items-center justify-between">
+                        <span>Tool ID (matt_tool)</span>
+                        <span className="text-[10px] text-gray-500 font-normal">Ex: 85424440</span>
+                      </label>
+                      <input 
+                        type="text" 
+                        placeholder="ID numérico"
+                        value={mercadolivreTool}
+                        onChange={(e) => setMercadolivreTool(e.target.value)}
+                        className="w-full bg-[#0d0e12] border border-gray-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-all text-gray-200"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs text-gray-400 font-semibold mb-2 flex items-center justify-between">
+                        <span>Word (matt_word)</span>
+                        <span className="text-[10px] text-gray-500 font-normal">Ex: ramonduarte</span>
+                      </label>
+                      <input 
+                        type="text" 
+                        placeholder="Palavra de rastreio"
+                        value={mercadolivreWord}
+                        onChange={(e) => setMercadolivreWord(e.target.value)}
+                        className="w-full bg-[#0d0e12] border border-gray-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-all text-gray-200"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-gray-400 font-semibold mb-2 flex items-center justify-between">
+                      <span>Mercado Livre Custom ID (Fallback / Links Diretos)</span>
+                      <span className="text-[10px] text-gray-500 font-normal">Ex: seunome_aff</span>
+                    </label>
+                    <input 
+                      type="text" 
+                      placeholder="Ex: seunome_aff"
+                      value={mercadolivreId}
+                      onChange={(e) => setMercadolivreId(e.target.value)}
+                      className="w-full bg-[#0d0e12] border border-gray-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-all text-gray-200"
+                    />
+                  </div>
                 </div>
 
                 <div className="pt-4 border-t border-gray-800">

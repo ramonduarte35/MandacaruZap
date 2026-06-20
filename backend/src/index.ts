@@ -2,6 +2,8 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { PrismaClient } from '@prisma/client';
+import axios from 'axios';
+
 
 dotenv.config();
 
@@ -242,7 +244,11 @@ app.get('/api/user/affiliate', async (req, res) => {
       select: {
         amazonId: true,
         shopeeId: true,
-        mercadolivreId: true
+        mercadolivreId: true,
+        mercadolivreChannel: true,
+        mercadolivreTool: true,
+        mercadolivreWord: true,
+        mercadolivreCookie: true
       }
     });
     res.json(user);
@@ -253,7 +259,15 @@ app.get('/api/user/affiliate', async (req, res) => {
 
 // 13. Salvar/Atualizar configurações de afiliado do usuário
 app.post('/api/user/affiliate', async (req, res) => {
-  const { amazonId, shopeeId, mercadolivreId } = req.body;
+  const { 
+    amazonId, 
+    shopeeId, 
+    mercadolivreId,
+    mercadolivreChannel,
+    mercadolivreTool,
+    mercadolivreWord,
+    mercadolivreCookie
+  } = req.body;
   try {
     const userId = await getUserId();
     const updatedUser = await prisma.user.update({
@@ -261,17 +275,77 @@ app.post('/api/user/affiliate', async (req, res) => {
       data: {
         amazonId,
         shopeeId,
-        mercadolivreId
+        mercadolivreId,
+        mercadolivreChannel,
+        mercadolivreTool,
+        mercadolivreWord,
+        mercadolivreCookie
       },
       select: {
         amazonId: true,
         shopeeId: true,
-        mercadolivreId: true
+        mercadolivreId: true,
+        mercadolivreChannel: true,
+        mercadolivreTool: true,
+        mercadolivreWord: true,
+        mercadolivreCookie: true
       }
     });
     res.json({ success: true, user: updatedUser });
   } catch (error) {
     res.status(500).json({ error: String(error) });
+  }
+});
+
+app.get('/api/affiliate/meli-tags', async (req, res) => {
+  try {
+    const userId = await getUserId();
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { mercadolivreCookie: true }
+    });
+
+    if (!user?.mercadolivreCookie) {
+      return res.status(400).json({ error: 'Cookie do Mercado Livre não configurado.' });
+    }
+
+    const userAgent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+
+    // As tags estão embutidas no HTML da página do linkbuilder como "tags":[...]
+    const pageRes = await axios.get('https://www.mercadolivre.com.br/afiliados/linkbuilder', {
+      headers: {
+        cookie: user.mercadolivreCookie,
+        'user-agent': userAgent,
+        accept: 'text/html,application/xhtml+xml',
+        'accept-language': 'pt-BR,pt;q=0.9'
+      },
+      timeout: 8000
+    });
+
+    const html: string = pageRes.data;
+    // Extrai o array de tags do HTML: "tags":[{tag:"ramonduarte",...},...]
+    const tagMatch = html.match(/"tags"\s*:\s*(\[[\s\S]*?\])/);
+    let tags: string[] = [];
+
+    if (tagMatch) {
+      try {
+        const tagsArray = JSON.parse(tagMatch[1]);
+        tags = tagsArray
+          .map((t: any) => (typeof t === 'string' ? t : t.tag || t.name || t.id))
+          .filter(Boolean);
+      } catch (parseErr) {
+        console.error('[Backend] Erro ao parsear tags do HTML:', parseErr);
+      }
+    }
+
+    if (tags.length === 0) {
+      console.warn('[Backend] Nenhuma tag encontrada no HTML do linkbuilder.');
+    }
+
+    res.json({ tags });
+  } catch (error: any) {
+    console.error('[Backend] Erro ao buscar tags ML:', error?.response?.status, error?.message);
+    res.status(500).json({ error: String(error?.message || error) });
   }
 });
 

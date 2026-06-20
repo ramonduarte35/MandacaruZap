@@ -1,7 +1,7 @@
 import { proto, WASocket } from '@whiskeysockets/baileys';
 import prisma from '../lib/prisma';
 import { scrapeProductData } from '../processor/scraper';
-import { convertToAffiliateLink } from '../processor/affiliate';
+import { convertToAffiliateLink, expandUrl } from '../processor/affiliate';
 import { broadcastMessage } from '../broadcaster/sender';
 
 // Expressões regulares para links da Amazon, Shopee e Mercado Livre
@@ -98,12 +98,15 @@ export async function handleIncomingMessage(
       try {
         console.log(`[Listener] Processing link for mapping: "${mapping.name}" / User: ${mapping.user.email}`);
 
-        // 1. Extração de Metadados (Scraping)
-        const productData = await scrapeProductData(originalUrl);
+        // 1. Expande a URL encurtada
+        const expandedUrl = await expandUrl(originalUrl);
 
-        // 2. Substituição dos IDs de Afiliados
+        // 2. Extração de Metadados (Scraping)
+        const productData = await scrapeProductData(expandedUrl);
+
+        // 3. Substituição dos IDs de Afiliados
         const convertedUrl = await convertToAffiliateLink(
-          originalUrl,
+          expandedUrl,
           mapping.user
         );
 

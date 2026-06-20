@@ -54,131 +54,155 @@ class WhatsAppManager {
       return;
     }
 
-    console.log(`[Manager] Starting instance ${instanceId}...`);
-    await prisma.whatsappInstance.update({
-      where: { id: instanceId },
-      data: { status: 'CONNECTING', qrCode: null }
-    });
+    try {
+      console.log(`[Manager] Starting instance ${instanceId}...`);
+      await prisma.whatsappInstance.update({
+        where: { id: instanceId },
+        data: { status: 'CONNECTING', qrCode: null }
+      });
 
-    const sessionDir = path.join(process.cwd(), 'sessions', instanceId);
-    if (!fs.existsSync(sessionDir)) {
-      fs.mkdirSync(sessionDir, { recursive: true });
-    }
-
-    const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
-
-    // Obtém a versão do cliente do WhatsApp Web mais recente recomendada
-    const { version, isLatest } = await fetchLatestBaileysVersion().catch(() => ({
-      version: [2, 3000, 1015901307], // Fallback moderno
-      isLatest: false
-    }));
-
-    console.log(`[Manager] Connecting instance ${instanceId} using WA version ${version.join('.')}, isLatest: ${isLatest}`);
-
-    const sock = makeWASocket({
-      version,
-      auth: state,
-      printQRInTerminal: false,
-      logger,
-      browser: Browsers.macOS('Desktop')
-    });
-
-    this.activeSockets.set(instanceId, sock);
-
-    sock.ev.on('connection.update', async (update: Partial<ConnectionState>) => {
-      const { connection, lastDisconnect, qr } = update;
-
-      if (qr) {
-        console.log(`[Manager] New QR Code generated for instance: ${instanceId}`);
-        try {
-          const qrDataUrl = await QRCode.toDataURL(qr);
-          await prisma.whatsappInstance.update({
-            where: { id: instanceId },
-            data: { status: 'QRCODE', qrCode: qrDataUrl }
-          });
-        } catch (qrError) {
-          console.error('[Manager] Failed to generate QR data URL:', qrError);
-        }
+      const sessionDir = path.join(process.cwd(), 'sessions', instanceId);
+      if (!fs.existsSync(sessionDir)) {
+        fs.mkdirSync(sessionDir, { recursive: true });
       }
 
-      if (connection === 'open') {
-        console.log(`[Manager] Instance ${instanceId} is CONNECTED.`);
-        const phone = sock.user?.id ? sock.user.id.split(':')[0] : null;
-        
-        await prisma.whatsappInstance.update({
-          where: { id: instanceId },
-          data: {
-            status: 'CONNECTED',
-            qrCode: null,
-            phone: phone
-          }
-        });
-        
-        this.retryCounts.set(instanceId, 0); // Reset do contador de retentativas
-      }
+      const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
 
-      if (connection === 'close') {
-        const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
-        const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-        console.error(`[Manager] Instance ${instanceId} connection closed. Code: ${statusCode}. Reconnecting: ${shouldReconnect}`);
-        console.error(`[Manager] Full disconnection error for ${instanceId}:`, lastDisconnect?.error);
+      // Obtém a versão do cliente do WhatsApp Web mais recente recomendada
+      const { version, isLatest } = await fetchLatestBaileysVersion().catch(() => ({
+        version: [2, 3000, 1015901307], // Fallback moderno
+        isLatest: false
+      }));
 
-        this.activeSockets.delete(instanceId);
+      console.log(`[Manager] Connecting instance ${instanceId} using WA version ${version.join('.')}, isLatest: ${isLatest}`);
 
-        if (shouldReconnect) {
-          const retries = this.retryCounts.get(instanceId) || 0;
-          if (retries < this.maxRetries) {
-            this.retryCounts.set(instanceId, retries + 1);
-            const delay = Math.min(1000 * Math.pow(2, retries), 30000); // Backoff exponencial
-            console.log(`[Manager] Reconnecting instance ${instanceId} in ${delay}ms... (Attempt ${retries + 1}/${this.maxRetries})`);
-            setTimeout(() => this.startInstance(instanceId), delay);
-          } else {
-            console.log(`[Manager] Max reconnection attempts reached for instance ${instanceId}. Setting to DISCONNECTED.`);
+      const sock = makeWASocket({
+        version,
+        auth: state,
+        printQRInTerminal: false,
+        logger,
+        browser: Browsers.macOS('Desktop')
+      });
+
+      this.activeSockets.set(instanceId, sock);
+
+      sock.ev.on('connection.update', async (update: Partial<ConnectionState>) => {
+        const { connection, lastDisconnect, qr } = update;
+
+        if (qr) {
+          console.log(`[Manager] New QR Code generated for instance: ${instanceId}`);
+          try {
+            const qrDataUrl = await QRCode.toDataURL(qr);
             await prisma.whatsappInstance.update({
               where: { id: instanceId },
-              data: { status: 'DISCONNECTED', qrCode: null }
+              data: { status: 'QRCODE', qrCode: qrDataUrl }
             });
+          } catch (qrError) {
+            console.error('[Manager] Failed to generate QR data URL:', qrError);
           }
-        } else {
-          console.log(`[Manager] Logged out from WhatsApp for instance ${instanceId}. Cleaning directory.`);
+        }
+
+        if (connection === 'open') {
+          console.log(`[Manager] Instance ${instanceId} is CONNECTED.`);
+          const phone = sock.user?.id ? sock.user.id.split(':')[0] : null;
+          
           await prisma.whatsappInstance.update({
             where: { id: instanceId },
-            data: { status: 'DISCONNECTED', qrCode: null, phone: null }
+            data: {
+              status: 'CONNECTED',
+              qrCode: null,
+              phone: phone
+            }
           });
-          // Remove a pasta de sessão pois ela foi invalidada
-          try {
-            fs.rmSync(sessionDir, { recursive: true, force: true });
-          } catch (rmError) {
-            console.error('[Manager] Failed to delete session directory:', rmError);
+          
+          this.retryCounts.set(instanceId, 0); // Reset do contador de retentativas
+        }
+
+        if (connection === 'close') {
+          const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
+          const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+          console.error(`[Manager] Instance ${instanceId} connection closed. Code: ${statusCode}. Reconnecting: ${shouldReconnect}`);
+          console.error(`[Manager] Full disconnection error for ${instanceId}:`, lastDisconnect?.error);
+
+          this.activeSockets.delete(instanceId);
+
+          if (shouldReconnect) {
+            const retries = this.retryCounts.get(instanceId) || 0;
+            if (retries < this.maxRetries) {
+              this.retryCounts.set(instanceId, retries + 1);
+              const delay = Math.min(1000 * Math.pow(2, retries), 30000); // Backoff exponencial
+              console.log(`[Manager] Reconnecting instance ${instanceId} in ${delay}ms... (Attempt ${retries + 1}/${this.maxRetries})`);
+              setTimeout(() => this.startInstance(instanceId), delay);
+            } else {
+              console.log(`[Manager] Max reconnection attempts reached for instance ${instanceId}. Setting to DISCONNECTED.`);
+              try {
+                await prisma.whatsappInstance.update({
+                  where: { id: instanceId },
+                  data: { status: 'DISCONNECTED', qrCode: null }
+                });
+              } catch (e) {}
+            }
+          } else {
+            console.log(`[Manager] Logged out from WhatsApp for instance ${instanceId}. Cleaning directory.`);
+            try {
+              await prisma.whatsappInstance.update({
+                where: { id: instanceId },
+                data: { status: 'DISCONNECTED', qrCode: null, phone: null }
+              });
+            } catch (e) {}
+            // Remove a pasta de sessão pois ela foi invalidada
+            try {
+              fs.rmSync(sessionDir, { recursive: true, force: true });
+            } catch (rmError) {
+              console.error('[Manager] Failed to delete session directory:', rmError);
+            }
           }
         }
-      }
-    });
+      });
 
-    sock.ev.on('creds.update', saveCreds);
+      sock.ev.on('creds.update', saveCreds);
 
-    sock.ev.on('messages.upsert', async (m) => {
-      console.log(`[Worker] messages.upsert received event: type=${m.type}, count=${m.messages?.length}`);
-      
-      if (m.type === 'notify') {
-        for (const message of m.messages) {
-          const remoteJid = message.key.remoteJid;
-          const fromMe = message.key.fromMe;
-          
-          console.log(`[Worker] Received message: JID=${remoteJid}, fromMe=${fromMe}, id=${message.key.id}`);
+      sock.ev.on('messages.upsert', async (m) => {
+        console.log(`[Worker] messages.upsert received event: type=${m.type}, count=${m.messages?.length}`);
+        
+        if (m.type === 'notify') {
+          for (const message of m.messages) {
+            const remoteJid = message.key.remoteJid;
+            const fromMe = message.key.fromMe;
+            
+            console.log(`[Worker] Received message: JID=${remoteJid}, fromMe=${fromMe}, id=${message.key.id}`);
 
-          // Ignora mensagens do próprio bot
-          if (fromMe) {
-            console.log(`[Worker] Skipped message ${message.key.id} because it was sent by the bot itself (fromMe: true).`);
-            continue;
+            // Ignora mensagens do próprio bot somente se não forem enviadas em um grupo mapeado como origem (permitindo testes do próprio usuário)
+            if (fromMe) {
+              const isSourceGroup = await prisma.groupMapping.count({
+                where: {
+                  instanceId: instanceId,
+                  sourceGroupId: remoteJid,
+                  isActive: true
+                }
+              });
+              if (isSourceGroup === 0) {
+                console.log(`[Worker] Skipped message ${message.key.id} because it was sent by the bot (fromMe: true) and is not in an active source group.`);
+                continue;
+              }
+              console.log(`[Worker] Processing message ${message.key.id} sent by the bot owner (fromMe: true) in source group ${remoteJid}.`);
+            }
+            
+            handleIncomingMessage(instanceId, sock, message).catch(err => {
+              console.error('[Manager] Error processing incoming message:', err);
+            });
           }
-          
-          handleIncomingMessage(instanceId, sock, message).catch(err => {
-            console.error('[Manager] Error processing incoming message:', err);
-          });
         }
-      }
-    });
+      });
+    } catch (error) {
+      console.error(`[Manager] Error in startInstance for ${instanceId}:`, error);
+      try {
+        await prisma.whatsappInstance.update({
+          where: { id: instanceId },
+          data: { status: 'DISCONNECTED', qrCode: null }
+        });
+      } catch (e) {}
+    }
   }
 
   /**
