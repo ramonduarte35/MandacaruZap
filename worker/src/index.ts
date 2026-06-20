@@ -7,47 +7,72 @@ import { convertToAffiliateLink } from './processor/affiliate';
 import { broadcastMessage } from './broadcaster/sender';
 import prisma from './lib/prisma';
 import { startQueueProcessor } from './services/queueProcessor.js';
+import { Request, Response, NextFunction } from 'express';
 
 dotenv.config();
+
+// --- Item 2: WORKER_SECRET obrigatório ---
+const WORKER_SECRET = process.env.WORKER_SECRET;
+if (!WORKER_SECRET || WORKER_SECRET.length < 20) {
+  console.error('[FATAL] WORKER_SECRET não definido ou muito fraco. Defina uma chave forte no .env e reinicie.');
+  process.exit(1);
+}
 
 const app = express();
 const PORT = process.env.WORKER_PORT || 5001;
 
-app.use(cors());
-app.use(express.json());
+// --- Item 4: CORS restrito — apenas o Backend pode chamar o Worker ---
+app.use(cors({
+  origin: ['http://localhost:5050', 'http://backend:5050'],
+  methods: ['GET', 'POST'],
+  allowedHeaders: ['Content-Type', 'x-worker-secret']
+}));
 
-// Rota de Health Check
+app.use(express.json({ limit: '1mb' }));
+
+// --- Item 2: Middleware de autenticação interna por WORKER_SECRET ---
+const requireWorkerSecret = (req: Request, res: Response, next: NextFunction) => {
+  const secret = req.headers['x-worker-secret'];
+  if (!secret || secret !== WORKER_SECRET) {
+    console.warn(`[Worker] Tentativa de acesso não autorizado em ${req.method} ${req.path} — IP: ${req.ip}`);
+    return res.status(401).json({ success: false, error: 'Acesso não autorizado.' });
+  }
+  next();
+};
+
+// Rota de Health Check — pública (para monitoramento)
 app.get('/health', (req, res) => {
   res.json({ status: 'OK', service: 'WhatsApp Worker' });
 });
 
 // Inicia um novo número (Gera QR Code se necessário)
-app.post('/instances/:id/start', async (req, res) => {
+app.post('/instances/:id/start', requireWorkerSecret, async (req, res) => {
   const { id } = req.params;
   try {
-    // Inicia de forma assíncrona para não travar a requisição HTTP
     whatsappManager.startInstance(id).catch(err => {
       console.error(`Error in background start for instance ${id}:`, err);
     });
     res.json({ success: true, message: `Instance ${id} starting process initiated.` });
   } catch (error) {
-    res.status(500).json({ success: false, error: String(error) });
+    console.error(`[Worker] Start error for ${id}:`, error);
+    res.status(500).json({ success: false, error: 'Erro interno do servidor.' });
   }
 });
 
 // Desconecta um número
-app.post('/instances/:id/stop', async (req, res) => {
+app.post('/instances/:id/stop', requireWorkerSecret, async (req, res) => {
   const { id } = req.params;
   try {
     await whatsappManager.stopInstance(id);
     res.json({ success: true, message: `Instance ${id} stopped.` });
   } catch (error) {
-    res.status(500).json({ success: false, error: String(error) });
+    console.error(`[Worker] Stop error for ${id}:`, error);
+    res.status(500).json({ success: false, error: 'Erro interno do servidor.' });
   }
 });
 
 // Rota para listar os grupos participantes de uma instância
-app.get('/instances/:id/groups', async (req, res) => {
+app.get('/instances/:id/groups', requireWorkerSecret, async (req, res) => {
   const { id } = req.params;
   const sock = whatsappManager.getSocket(id);
   if (!sock) {
@@ -62,12 +87,12 @@ app.get('/instances/:id/groups', async (req, res) => {
     res.json({ success: true, groups: groupList });
   } catch (error) {
     console.error(`[Worker] Error fetching groups for ${id}:`, error);
-    res.status(500).json({ success: false, error: String(error) });
+    res.status(500).json({ success: false, error: 'Erro interno do servidor.' });
   }
 });
 
 // Rota de Disparo Manual
-app.post('/instances/manual-dispatch', async (req, res) => {
+app.post('/instances/manual-dispatch', requireWorkerSecret, async (req, res) => {
   const { instanceId, destGroupIds, url, userId } = req.body;
 
   if (!instanceId || !destGroupIds || !url || !userId) {
@@ -80,44 +105,28 @@ app.post('/instances/manual-dispatch', async (req, res) => {
   }
 
   try {
-    // 1. Busca configurações de afiliado do usuário
-    const user = await prisma.user.findUnique({
-      where: { id: userId }
-    });
-
+    const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) {
       return res.status(404).json({ success: false, error: 'User not found.' });
     }
 
     console.log(`[Manual Dispatch] Processing manual dispatch for user ${user.email}`);
 
-    // 2. Scraping do produto
     const productData = await scrapeProductData(url);
-
-    // 3. Conversão para link de afiliado
     const convertedUrl = await convertToAffiliateLink(url, user);
 
-    // 4. Montagem da Copy
     const emojiTitle = '📦';
     const emojiOffer = '🔥';
     const emojiCheck = '✅';
-    
+
     const copy = `${emojiOffer} *SUPER OFERTA EXCLUSIVA!* ${emojiOffer}\n\n` +
                  `${emojiTitle} *Produto:* ${productData.title}\n` +
                  `💰 *Por Apenas:* ${productData.price}\n\n` +
                  `${emojiCheck} *Acesse aqui:* ${convertedUrl}\n\n` +
                  `⚠️ _Oferta por tempo limitado!_`;
 
-    // 5. Broadcast para os grupos destinatários selecionados
-    await broadcastMessage(
-      instanceId,
-      sock,
-      destGroupIds,
-      copy,
-      productData.imageUrl || undefined
-    );
+    await broadcastMessage(instanceId, sock, destGroupIds, copy, productData.imageUrl || undefined);
 
-    // 6. Registra log de sucesso
     await prisma.log.create({
       data: {
         originalUrl: url,
@@ -128,21 +137,16 @@ app.post('/instances/manual-dispatch', async (req, res) => {
         status: 'SENT',
         sourceGroup: 'MANUAL_DISPATCH',
         destGroups: Array.isArray(destGroupIds) ? destGroupIds.join(',') : String(destGroupIds),
-        userId: userId,
-        instanceId: instanceId
+        userId,
+        instanceId
       }
     });
 
-    res.json({
-      success: true,
-      product: productData,
-      convertedUrl
-    });
+    res.json({ success: true, product: productData, convertedUrl });
 
   } catch (error) {
     console.error('[Manual Dispatch] Error executing manual dispatch:', error);
-    
-    // Registra log de falha
+
     await prisma.log.create({
       data: {
         originalUrl: url,
@@ -150,22 +154,20 @@ app.post('/instances/manual-dispatch', async (req, res) => {
         errorMessage: String(error),
         sourceGroup: 'MANUAL_DISPATCH',
         destGroups: Array.isArray(destGroupIds) ? destGroupIds.join(',') : String(destGroupIds),
-        userId: userId,
-        instanceId: instanceId
+        userId,
+        instanceId
       }
-    });
+    }).catch(() => {});
 
-    res.status(500).json({ success: false, error: String(error) });
+    res.status(500).json({ success: false, error: 'Erro interno ao processar o disparo.' });
   }
 });
 
 // Inicialização do servidor
 app.listen(PORT, () => {
   console.log(`WhatsApp Worker internal API running on port ${PORT}`);
-  
-  // Executa o auto-bootstrap para levantar instâncias salvas como conectadas anteriormente
+  console.log(`[Worker] Autenticação por WORKER_SECRET: ativada`);
+
   whatsappManager.bootstrap();
-  
-  // Inicializa o processador de fila de mensagens em background
   startQueueProcessor();
 });

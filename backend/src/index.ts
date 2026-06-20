@@ -5,6 +5,7 @@ import { PrismaClient } from '@prisma/client';
 import axios from 'axios';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
+import rateLimit from 'express-rate-limit';
 import { Request, Response, NextFunction } from 'express';
 
 declare global {
@@ -17,13 +18,55 @@ declare global {
 
 dotenv.config();
 
+// --- Item 1: JWT_SECRET não pode ser vazio ou fraco ---
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET || JWT_SECRET.length < 20) {
+  console.error('[FATAL] JWT_SECRET não definido ou muito fraco. Defina uma chave forte no .env e reinicie.');
+  process.exit(1);
+}
+
+const WORKER_SECRET = process.env.WORKER_SECRET;
+if (!WORKER_SECRET || WORKER_SECRET.length < 20) {
+  console.error('[FATAL] WORKER_SECRET não definido ou muito fraco. Defina uma chave forte no .env e reinicie.');
+  process.exit(1);
+}
+
+const WORKER_URL = 'http://localhost:5001';
+
 const app = express();
 const prisma = new PrismaClient();
 const PORT = process.env.PORT || 5050;
-const JWT_SECRET = process.env.JWT_SECRET || 'mandacaruzap-secret-key-123';
 
-app.use(cors());
-app.use(express.json());
+// --- Item 4: CORS restrito à origem do frontend ---
+const allowedOrigin = process.env.FRONTEND_URL || 'http://localhost:3000';
+app.use(cors({
+  origin: allowedOrigin,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
+app.use(express.json({ limit: '1mb' }));
+
+// --- Item 5: Rate Limit no endpoint de login ---
+const loginRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  max: 10,                   // máx 10 tentativas por IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Muitas tentativas de login. Tente novamente em 15 minutos.' }
+});
+
+// Helper: chamadas autenticadas ao Worker
+const workerFetch = (path: string, options: RequestInit = {}) => {
+  return fetch(`${WORKER_URL}${path}`, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      'x-worker-secret': WORKER_SECRET as string,
+      ...(options.headers as Record<string, string> || {})
+    }
+  });
+};
 
 const requireAuth = (req: Request, res: Response, next: NextFunction) => {
   const authHeader = req.headers.authorization;
@@ -32,7 +75,7 @@ const requireAuth = (req: Request, res: Response, next: NextFunction) => {
   }
   const token = authHeader.split(' ')[1];
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string };
+    const decoded = jwt.verify(token, JWT_SECRET as string) as { userId: string };
     req.userId = decoded.userId;
     next();
   } catch (e) {
@@ -48,28 +91,33 @@ app.use((req, res, next) => {
   next();
 });
 
-// 1. Health check
+// --- Item 9: Health check sem expor detalhes do banco ---
 app.get('/health', async (req, res) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
     res.json({ status: 'OK', database: 'Connected' });
   } catch (error) {
-    res.status(500).json({ status: 'ERROR', database: 'Disconnected', error: String(error) });
+    console.error('[Health] Database error:', error);
+    res.status(500).json({ status: 'ERROR', database: 'Disconnected' });
   }
 });
 
-// 0. Autenticação (Login)
-app.post('/api/auth/login', async (req, res) => {
+// 0. Autenticação (Login) — com rate limit
+app.post('/api/auth/login', loginRateLimiter, async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) {
     return res.status(400).json({ error: 'E-mail e senha são obrigatórios.' });
   }
 
-  try {
-    const user = await prisma.user.findUnique({
-      where: { email }
-    });
+  // Validação básica de formato
+  if (typeof email !== 'string' || typeof password !== 'string') {
+    return res.status(400).json({ error: 'Dados inválidos.' });
+  }
 
+  try {
+    const user = await prisma.user.findUnique({ where: { email } });
+
+    // Resposta genérica para não revelar se o e-mail existe
     if (!user) {
       return res.status(401).json({ error: 'E-mail ou senha incorretos.' });
     }
@@ -79,19 +127,16 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(401).json({ error: 'E-mail ou senha incorretos.' });
     }
 
-    const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign({ userId: user.id }, JWT_SECRET as string, { expiresIn: '7d' });
 
     res.json({
       success: true,
       token,
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name
-      }
+      user: { id: user.id, email: user.email, name: user.name }
     });
   } catch (error) {
-    res.status(500).json({ error: String(error) });
+    console.error('[Login] Error:', error);
+    res.status(500).json({ error: 'Erro interno do servidor.' });
   }
 });
 
@@ -105,7 +150,8 @@ app.get('/api/instances', async (req, res) => {
     });
     res.json(instances);
   } catch (error) {
-    res.status(500).json({ error: String(error) });
+    console.error('[Instances] List error:', error);
+    res.status(500).json({ error: 'Erro interno do servidor.' });
   }
 });
 
@@ -114,48 +160,45 @@ app.get('/api/instances/:id/groups', async (req, res) => {
   const { id } = req.params;
   const userId = req.userId || '';
   try {
-    const instance = await prisma.whatsappInstance.findFirst({
-      where: { id, userId }
-    });
+    const instance = await prisma.whatsappInstance.findFirst({ where: { id, userId } });
     if (!instance) {
       return res.status(404).json({ error: 'Instância não encontrada ou não pertence ao seu usuário.' });
     }
-    const response = await fetch(`http://localhost:5001/instances/${id}/groups`);
+    const response = await workerFetch(`/instances/${id}/groups`);
     const data = await response.json();
     if (!response.ok) {
       return res.status(response.status).json(data);
     }
     res.json(data);
   } catch (error) {
-    res.status(500).json({ error: String(error) });
+    console.error('[Groups] Fetch error:', error);
+    res.status(500).json({ error: 'Erro interno do servidor.' });
   }
 });
 
 // 3. Criar uma nova instância do WhatsApp para o usuário
 app.post('/api/instances', async (req, res) => {
   const { name } = req.body;
-  if (!name) {
-    return res.status(400).json({ error: 'Name is required' });
+
+  // --- Item 8: Validação de input ---
+  if (!name || typeof name !== 'string' || name.trim().length === 0 || name.length > 100) {
+    return res.status(400).json({ error: 'Nome inválido. Deve ter entre 1 e 100 caracteres.' });
   }
 
   try {
     const userId = req.userId || '';
     const instance = await prisma.whatsappInstance.create({
-      data: {
-        name,
-        userId,
-        status: 'DISCONNECTED'
-      }
+      data: { name: name.trim(), userId, status: 'DISCONNECTED' }
     });
 
-    // Notifica o Worker para iniciar a conexão
-    fetch(`http://localhost:5001/instances/${instance.id}/start`, { method: 'POST' }).catch(err => {
+    workerFetch(`/instances/${instance.id}/start`, { method: 'POST' }).catch(err => {
       console.error('[Backend] Failed to start instance in worker:', err);
     });
 
     res.json(instance);
   } catch (error) {
-    res.status(500).json({ error: String(error) });
+    console.error('[Instances] Create error:', error);
+    res.status(500).json({ error: 'Erro interno do servidor.' });
   }
 });
 
@@ -164,18 +207,17 @@ app.post('/api/instances/:id/start', async (req, res) => {
   const { id } = req.params;
   const userId = req.userId || '';
   try {
-    const instance = await prisma.whatsappInstance.findFirst({
-      where: { id, userId }
-    });
+    const instance = await prisma.whatsappInstance.findFirst({ where: { id, userId } });
     if (!instance) {
       return res.status(404).json({ error: 'Instância não encontrada ou não pertence ao seu usuário.' });
     }
-    fetch(`http://localhost:5001/instances/${id}/start`, { method: 'POST' }).catch(err => {
+    workerFetch(`/instances/${id}/start`, { method: 'POST' }).catch(err => {
       console.error('[Backend] Failed to start instance in worker:', err);
     });
     res.json({ success: true, message: 'Start request sent to worker.' });
   } catch (error) {
-    res.status(500).json({ error: String(error) });
+    console.error('[Instances] Start error:', error);
+    res.status(500).json({ error: 'Erro interno do servidor.' });
   }
 });
 
@@ -184,18 +226,17 @@ app.post('/api/instances/:id/stop', async (req, res) => {
   const { id } = req.params;
   const userId = req.userId || '';
   try {
-    const instance = await prisma.whatsappInstance.findFirst({
-      where: { id, userId }
-    });
+    const instance = await prisma.whatsappInstance.findFirst({ where: { id, userId } });
     if (!instance) {
       return res.status(404).json({ error: 'Instância não encontrada ou não pertence ao seu usuário.' });
     }
-    fetch(`http://localhost:5001/instances/${id}/stop`, { method: 'POST' }).catch(err => {
+    workerFetch(`/instances/${id}/stop`, { method: 'POST' }).catch(err => {
       console.error('[Backend] Failed to stop instance in worker:', err);
     });
     res.json({ success: true, message: 'Stop request sent to worker.' });
   } catch (error) {
-    res.status(500).json({ error: String(error) });
+    console.error('[Instances] Stop error:', error);
+    res.status(500).json({ error: 'Erro interno do servidor.' });
   }
 });
 
@@ -204,22 +245,16 @@ app.delete('/api/instances/:id', async (req, res) => {
   const { id } = req.params;
   const userId = req.userId || '';
   try {
-    const instance = await prisma.whatsappInstance.findFirst({
-      where: { id, userId }
-    });
+    const instance = await prisma.whatsappInstance.findFirst({ where: { id, userId } });
     if (!instance) {
       return res.status(404).json({ error: 'Instância não encontrada ou não pertence ao seu usuário.' });
     }
-    // Tenta parar a conexão no worker
-    await fetch(`http://localhost:5001/instances/${id}/stop`, { method: 'POST' }).catch(() => {});
-    
-    // Deleta do banco
-    await prisma.whatsappInstance.delete({
-      where: { id }
-    });
+    await workerFetch(`/instances/${id}/stop`, { method: 'POST' }).catch(() => {});
+    await prisma.whatsappInstance.delete({ where: { id } });
     res.json({ success: true, message: 'Instance deleted.' });
   } catch (error) {
-    res.status(500).json({ error: String(error) });
+    console.error('[Instances] Delete error:', error);
+    res.status(500).json({ error: 'Erro interno do servidor.' });
   }
 });
 
@@ -229,39 +264,44 @@ app.get('/api/mappings', async (req, res) => {
   try {
     const mappings = await prisma.groupMapping.findMany({
       where: { userId },
-      include: {
-        instance: {
-          select: { name: true }
-        }
-      },
+      include: { instance: { select: { name: true } } },
       orderBy: { createdAt: 'desc' }
     });
     res.json(mappings);
   } catch (error) {
-    res.status(500).json({ error: String(error) });
+    console.error('[Mappings] List error:', error);
+    res.status(500).json({ error: 'Erro interno do servidor.' });
   }
 });
 
 // 8. Criar mapeamento de grupos
 app.post('/api/mappings', async (req, res) => {
   const { name, instanceId, sourceGroupId, sourceGroupName, destGroupIds, isActive } = req.body;
-  
-  if (!name || !instanceId || !sourceGroupId || !destGroupIds) {
-    return res.status(400).json({ error: 'Missing parameters. Required: name, instanceId, sourceGroupId, destGroupIds' });
+
+  // --- Item 8: Validação de inputs ---
+  if (!name || typeof name !== 'string' || name.trim().length === 0 || name.length > 100) {
+    return res.status(400).json({ error: 'Nome inválido. Deve ter entre 1 e 100 caracteres.' });
+  }
+  if (!instanceId || typeof instanceId !== 'string') {
+    return res.status(400).json({ error: 'instanceId inválido.' });
+  }
+  if (!sourceGroupId || typeof sourceGroupId !== 'string') {
+    return res.status(400).json({ error: 'sourceGroupId inválido.' });
+  }
+  if (!destGroupIds) {
+    return res.status(400).json({ error: 'destGroupIds é obrigatório.' });
   }
 
   const userId = req.userId || '';
   try {
-    const instance = await prisma.whatsappInstance.findFirst({
-      where: { id: instanceId, userId }
-    });
+    const instance = await prisma.whatsappInstance.findFirst({ where: { id: instanceId, userId } });
     if (!instance) {
       return res.status(400).json({ error: 'Instância do WhatsApp não encontrada ou não pertence ao seu usuário.' });
     }
 
     const mapping = await prisma.groupMapping.create({
       data: {
-        name,
+        name: name.trim(),
         instanceId,
         sourceGroupId,
         sourceGroupName: sourceGroupName || 'Grupo Origem',
@@ -272,7 +312,8 @@ app.post('/api/mappings', async (req, res) => {
     });
     res.json(mapping);
   } catch (error) {
-    res.status(500).json({ error: String(error) });
+    console.error('[Mappings] Create error:', error);
+    res.status(500).json({ error: 'Erro interno do servidor.' });
   }
 });
 
@@ -281,18 +322,15 @@ app.delete('/api/mappings/:id', async (req, res) => {
   const { id } = req.params;
   const userId = req.userId || '';
   try {
-    const mapping = await prisma.groupMapping.findFirst({
-      where: { id, userId }
-    });
+    const mapping = await prisma.groupMapping.findFirst({ where: { id, userId } });
     if (!mapping) {
       return res.status(404).json({ error: 'Mapeamento não encontrado ou não pertence ao seu usuário.' });
     }
-    await prisma.groupMapping.delete({
-      where: { id }
-    });
+    await prisma.groupMapping.delete({ where: { id } });
     res.json({ success: true, message: 'Mapping deleted.' });
   } catch (error) {
-    res.status(500).json({ error: String(error) });
+    console.error('[Mappings] Delete error:', error);
+    res.status(500).json({ error: 'Erro interno do servidor.' });
   }
 });
 
@@ -307,7 +345,8 @@ app.get('/api/logs', async (req, res) => {
     });
     res.json(logs);
   } catch (error) {
-    res.status(500).json({ error: String(error) });
+    console.error('[Logs] List error:', error);
+    res.status(500).json({ error: 'Erro interno do servidor.' });
   }
 });
 
@@ -318,43 +357,35 @@ app.post('/api/manual-dispatch', async (req, res) => {
   if (!instanceId || !destGroupIds || !url) {
     return res.status(400).json({ error: 'Missing parameters. Required: instanceId, destGroupIds, url' });
   }
+  if (typeof url !== 'string' || url.length > 2000) {
+    return res.status(400).json({ error: 'URL inválida.' });
+  }
 
   const userId = req.userId || '';
   try {
-    const instance = await prisma.whatsappInstance.findFirst({
-      where: { id: instanceId, userId }
-    });
+    const instance = await prisma.whatsappInstance.findFirst({ where: { id: instanceId, userId } });
     if (!instance) {
       return res.status(400).json({ error: 'Instância do WhatsApp não encontrada ou não pertence ao seu usuário.' });
     }
-    
-    // Encaminha a chamada de disparo para o Worker
-    const response = await fetch('http://localhost:5001/instances/manual-dispatch', {
+
+    const response = await workerFetch('/instances/manual-dispatch', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        instanceId,
-        destGroupIds,
-        url,
-        userId
-      })
+      body: JSON.stringify({ instanceId, destGroupIds, url, userId })
     });
 
     const data = await response.json();
-
     if (!response.ok) {
       return res.status(response.status).json(data);
     }
-
     res.json(data);
   } catch (error) {
-    res.status(500).json({ error: String(error) });
+    console.error('[Manual Dispatch] Error:', error);
+    res.status(500).json({ error: 'Erro interno do servidor.' });
   }
 });
 
 // 12. Obter configurações de afiliado do usuário
+// --- Item 7: Cookie ML NÃO é retornado — apenas hasCookie booleano ---
 app.get('/api/user/affiliate', async (req, res) => {
   try {
     const userId = req.userId || '';
@@ -367,7 +398,7 @@ app.get('/api/user/affiliate', async (req, res) => {
         mercadolivreChannel: true,
         mercadolivreTool: true,
         mercadolivreWord: true,
-        mercadolivreCookie: true,
+        mercadolivreCookie: true, // lemos internamente para computar hasCookie
         cookieNotificationPhone: true,
         listenAmazon: true,
         listenShopee: true,
@@ -378,17 +409,25 @@ app.get('/api/user/affiliate', async (req, res) => {
         dailyLimit: true
       }
     });
-    res.json(user);
+
+    if (!user) {
+      return res.status(404).json({ error: 'Usuário não encontrado.' });
+    }
+
+    // Remove o cookie da resposta — retorna apenas indicador booleano
+    const { mercadolivreCookie, ...safeUser } = user;
+    res.json({ ...safeUser, hasCookie: Boolean(mercadolivreCookie && mercadolivreCookie.length > 0) });
   } catch (error) {
-    res.status(500).json({ error: String(error) });
+    console.error('[Affiliate] Get error:', error);
+    res.status(500).json({ error: 'Erro interno do servidor.' });
   }
 });
 
 // 13. Salvar/Atualizar configurações de afiliado do usuário
 app.post('/api/user/affiliate', async (req, res) => {
-  const { 
-    amazonId, 
-    shopeeId, 
+  const {
+    amazonId,
+    shopeeId,
     mercadolivreId,
     mercadolivreChannel,
     mercadolivreTool,
@@ -403,6 +442,12 @@ app.post('/api/user/affiliate', async (req, res) => {
     sendWindowEnd,
     dailyLimit
   } = req.body;
+
+  // Validação de limite diário
+  if (dailyLimit !== undefined && (isNaN(Number(dailyLimit)) || Number(dailyLimit) < 1 || Number(dailyLimit) > 500)) {
+    return res.status(400).json({ error: 'Limite diário inválido. Deve ser entre 1 e 500.' });
+  }
+
   const userId = req.userId || '';
   try {
     const updatedUser = await prisma.user.update({
@@ -414,7 +459,8 @@ app.post('/api/user/affiliate', async (req, res) => {
         mercadolivreChannel,
         mercadolivreTool,
         mercadolivreWord,
-        mercadolivreCookie,
+        // Só atualiza o cookie se um novo valor foi enviado
+        ...(mercadolivreCookie !== undefined && mercadolivreCookie !== null ? { mercadolivreCookie } : {}),
         cookieNotificationPhone,
         listenAmazon: listenAmazon !== undefined ? Boolean(listenAmazon) : undefined,
         listenShopee: listenShopee !== undefined ? Boolean(listenShopee) : undefined,
@@ -442,9 +488,11 @@ app.post('/api/user/affiliate', async (req, res) => {
         dailyLimit: true
       }
     });
-    res.json({ success: true, user: updatedUser });
+    const { mercadolivreCookie: _, ...safeUser } = updatedUser;
+    res.json({ success: true, user: { ...safeUser, hasCookie: Boolean(updatedUser.mercadolivreCookie && updatedUser.mercadolivreCookie.length > 0) } });
   } catch (error) {
-    res.status(500).json({ error: String(error) });
+    console.error('[Affiliate] Save error:', error);
+    res.status(500).json({ error: 'Erro interno do servidor.' });
   }
 });
 
@@ -488,17 +536,14 @@ app.get('/api/affiliate/meli-tags', async (req, res) => {
       }
     }
 
-    if (tags.length === 0) {
-      console.warn('[Backend] Nenhuma tag encontrada no HTML do linkbuilder.');
-    }
-
     res.json({ tags });
   } catch (error: any) {
     console.error('[Backend] Erro ao buscar tags ML:', error?.response?.status, error?.message);
-    res.status(500).json({ error: String(error?.message || error) });
+    res.status(500).json({ error: 'Erro ao buscar etiquetas do Mercado Livre.' });
   }
 });
 
 app.listen(PORT, () => {
   console.log(`Backend API running on port ${PORT}`);
+  console.log(`CORS permitido para origem: ${allowedOrigin}`);
 });

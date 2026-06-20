@@ -72,7 +72,8 @@ export default function Dashboard() {
   const [mercadolivreChannel, setMercadolivreChannel] = useState('');
   const [mercadolivreTool, setMercadolivreTool] = useState('');
   const [mercadolivreWord, setMercadolivreWord] = useState('');
-  const [mercadolivreCookie, setMercadolivreCookie] = useState('');
+  const [newCookie, setNewCookie] = useState(''); // campo para inserir NOVO cookie
+  const [hasCookie, setHasCookie] = useState(false); // indica se já existe cookie salvo
   const [meliAvailableTags, setMeliAvailableTags] = useState<string[]>([]);
   const [isFetchingTags, setIsFetchingTags] = useState(false);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
@@ -303,7 +304,8 @@ export default function Dashboard() {
           setMercadolivreChannel(data.mercadolivreChannel || '');
           setMercadolivreTool(data.mercadolivreTool || '');
           setMercadolivreWord(data.mercadolivreWord || '');
-          setMercadolivreCookie(data.mercadolivreCookie || '');
+          setHasCookie(data.hasCookie === true);
+          setNewCookie(''); // limpa o campo de novo cookie ao recarregar
           setCookieNotificationPhone(data.cookieNotificationPhone || '');
           setListenAmazon(data.listenAmazon !== undefined ? data.listenAmazon : true);
           setListenShopee(data.listenShopee !== undefined ? data.listenShopee : true);
@@ -333,7 +335,8 @@ export default function Dashboard() {
           mercadolivreChannel,
           mercadolivreTool,
           mercadolivreWord,
-          mercadolivreCookie,
+          // Só envia mercadolivreCookie se o usuário digitou um novo
+          ...(newCookie.trim() ? { mercadolivreCookie: newCookie.trim() } : {}),
           cookieNotificationPhone,
           listenAmazon,
           listenShopee,
@@ -649,7 +652,7 @@ export default function Dashboard() {
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${activeTab === 'mapping' ? 'bg-[#222533] text-emerald-400 shadow-md shadow-black/10' : 'text-gray-400 hover:bg-[#1a1d29] hover:text-gray-200'}`}
             >
               <Layers size={18} />
-              Mapeamento de Grupos
+              Mapeamento
             </button>
             <button 
               onClick={() => {
@@ -742,7 +745,7 @@ export default function Dashboard() {
             <div>
               <h2 className="text-xl md:text-2xl font-bold font-mono">
                 {activeTab === 'instances' && 'Conexões do WhatsApp'}
-                {activeTab === 'mapping' && 'Mapeamento de Grupos'}
+                {activeTab === 'mapping' && 'Mapeamento'}
                 {activeTab === 'manual' && 'Gerador & Disparo Manual'}
                 {activeTab === 'logs' && 'Logs e Atividades'}
                 {activeTab === 'settings' && 'Configurações de Afiliado'}
@@ -883,7 +886,7 @@ export default function Dashboard() {
                 }}
                 className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 font-semibold text-[#0d0e12] text-sm shadow-lg shadow-emerald-500/15 transition-all"
               >
-                <Plus size={16} /> Novo Mapeamento
+                <Plus size={16} /> Novo
               </button>
             </div>
 
@@ -1215,26 +1218,39 @@ export default function Dashboard() {
                   <h3 className="text-xs font-semibold text-emerald-400 mb-3 uppercase tracking-wider">Mercado Livre (Gerador via Cookies - Recomendado)</h3>
                   
                   <div className="mb-4">
-                    <label className="block text-xs text-gray-400 font-semibold mb-2 flex items-center justify-between">
-                      <span>Cookies de Sessão do Mercado Livre</span>
-                      <span className="text-[10px] text-gray-500 font-normal">Copie os cookies de login do Portal de Afiliados</span>
-                    </label>
-                    <textarea 
-                      placeholder="Cole aqui os cookies de sessão obtidos do Portal (ex: _csrf=...; ssid=...)"
-                      value={mercadolivreCookie}
-                      onChange={(e) => setMercadolivreCookie(e.target.value)}
-                      onBlur={fetchMeliTags}
-                      rows={3}
-                      className="w-full bg-[#0d0e12] border border-gray-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-all text-gray-200 font-mono text-xs resize-y"
-                    />
-                    {isFetchingTags && (
-                      <p className="text-[10px] text-emerald-400 mt-1 animate-pulse">Buscando etiquetas disponíveis...</p>
-                    )}
-                    {meliAvailableTags.length > 0 && !isFetchingTags && (
-                      <p className="text-[10px] text-emerald-500 mt-1">✅ {meliAvailableTags.length} etiqueta(s) encontrada(s): {meliAvailableTags.join(', ')}</p>
-                    )}
+                     <label className="block text-xs text-gray-400 font-semibold mb-2 flex items-center justify-between">
+                       <span>Cookies de Sessão do Mercado Livre</span>
+                       <span className="text-[10px] text-gray-500 font-normal">Copie os cookies de login do Portal de Afiliados</span>
+                     </label>
 
-                  </div>
+                     {/* Indicador de status do cookie atual */}
+                     <div className={`flex items-center gap-2 mb-3 px-3 py-2 rounded-lg text-xs font-semibold ${
+                       hasCookie
+                         ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400'
+                         : 'bg-red-500/10 border border-red-500/20 text-red-400'
+                     }`}>
+                       <span>{hasCookie ? '✅' : '❌'}</span>
+                       <span>{hasCookie ? 'Cookie configurado e ativo no servidor.' : 'Nenhum cookie configurado. Cole abaixo para configurar.'}</span>
+                     </div>
+
+                     <textarea 
+                       placeholder={hasCookie
+                         ? 'Cole aqui para SUBSTITUIR o cookie atual (deixe em branco para manter o atual)'
+                         : 'Cole aqui os cookies de sessão obtidos do Portal (ex: _csrf=...; ssid=...)'}
+                       value={newCookie}
+                       onChange={(e) => setNewCookie(e.target.value)}
+                       onBlur={() => { if (newCookie.trim()) fetchMeliTags(); }}
+                       rows={3}
+                       className="w-full bg-[#0d0e12] border border-gray-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-all text-gray-200 font-mono text-xs resize-y"
+                     />
+                     {isFetchingTags && (
+                       <p className="text-[10px] text-emerald-400 mt-1 animate-pulse">Buscando etiquetas disponíveis...</p>
+                     )}
+                     {meliAvailableTags.length > 0 && !isFetchingTags && (
+                       <p className="text-[10px] text-emerald-500 mt-1">✅ {meliAvailableTags.length} etiqueta(s) encontrada(s): {meliAvailableTags.join(', ')}</p>
+                     )}
+
+                   </div>
 
                   <div className="mb-4">
                     <label className="block text-xs text-gray-400 font-semibold mb-2 flex items-center justify-between">
