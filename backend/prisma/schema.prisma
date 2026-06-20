@@ -31,10 +31,16 @@ model User {
   listenMercadoLivre Boolean            @default(true)
   mercadolivreOnlyShort Boolean            @default(false)
   
+  // Controle de Envio (Fila & Limites)
+  sendWindowStart    String             @default("08:00")
+  sendWindowEnd      String             @default("18:00")
+  dailyLimit         Int                @default(30)
+
   // Relações
   instances      WhatsappInstance[]
   mappings       GroupMapping[]
   logs           Log[]
+  messageQueues  MessageQueue[]
 }
 
 model WhatsappInstance {
@@ -53,6 +59,7 @@ model WhatsappInstance {
   // Mapeamentos associados a esta instância de disparo/escuta
   mappings    GroupMapping[]
   logs        Log[]
+  messageQueues MessageQueue[]
 }
 
 model GroupMapping {
@@ -93,3 +100,27 @@ model Log {
   instanceId      String
   instance        WhatsappInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
 }
+
+model MessageQueue {
+  id              String           @id @default(uuid())
+  originalUrl     String
+  convertedUrl    String?
+  title           String?
+  price           String?
+  imageUrl        String?
+  copy            String           // O texto formatado da copy a ser enviado
+  status          String           @default("PENDING") // PENDING, SENT, FAILED, EXPIRED
+  errorMessage    String?
+  sourceGroup     String?          // Grupo de origem
+  destGroups      String           // Grupos de destino separados por vírgula
+  createdAt       DateTime         @default(now())
+  sentAt          DateTime?
+  
+  // Relações
+  userId          String
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  instanceId      String
+  instance        WhatsappInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+}
+

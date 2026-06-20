@@ -229,19 +229,24 @@ export async function handleIncomingMessage(
         // 3. Montagem da Copy
         const copy = buildCopy(productData, convertedUrl);
 
-        // 4. Disparo (Broadcasting) para os grupos destino mapeados
-        const destGroupsArray = mapping.destGroupIds.split(',').map(id => id.trim()).filter(Boolean);
-        console.log(`[Listener] Broadcasting message for mapping ${mapping.id} to groups:`, destGroupsArray);
-        
-        await broadcastMessage(
-          instanceId,
-          sock,
-          destGroupsArray,
-          copy,
-          productData.imageUrl || undefined
-        );
+        // 4. Salvar na Fila de Mensagens (MessageQueue) como PENDING
+        await prisma.messageQueue.create({
+          data: {
+            originalUrl,
+            convertedUrl,
+            title: productData.title,
+            price: productData.price,
+            imageUrl: productData.imageUrl,
+            copy,
+            sourceGroup: fromJid,
+            destGroups: mapping.destGroupIds,
+            status: 'PENDING',
+            userId: mapping.userId,
+            instanceId: instanceId
+          }
+        });
 
-        // 5. Salva log com status de sucesso
+        // 5. Salva log com status de enfileiramento (QUEUED)
         await prisma.log.create({
           data: {
             originalUrl,
@@ -249,7 +254,7 @@ export async function handleIncomingMessage(
             title: productData.title,
             price: productData.price,
             imageUrl: productData.imageUrl,
-            status: 'SENT',
+            status: 'QUEUED',
             sourceGroup: fromJid,
             destGroups: mapping.destGroupIds,
             userId: mapping.userId,

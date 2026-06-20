@@ -6,6 +6,7 @@ import { scrapeProductData } from './processor/scraper';
 import { convertToAffiliateLink } from './processor/affiliate';
 import { broadcastMessage } from './broadcaster/sender';
 import prisma from './lib/prisma';
+import { startQueueProcessor } from './services/queueProcessor.js';
 
 dotenv.config();
 
@@ -164,4 +165,7 @@ app.listen(PORT, () => {
   
   // Executa o auto-bootstrap para levantar instâncias salvas como conectadas anteriormente
   whatsappManager.bootstrap();
+  
+  // Inicializa o processador de fila de mensagens em background
+  startQueueProcessor();
 });

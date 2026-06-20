@@ -78,6 +78,11 @@ export default function Dashboard() {
   // Apenas Links Curtos Meli
   const [mercadolivreOnlyShort, setMercadolivreOnlyShort] = useState(false);
 
+  // Controle de Envio (Fila & Limites)
+  const [sendWindowStart, setSendWindowStart] = useState('08:00');
+  const [sendWindowEnd, setSendWindowEnd] = useState('18:00');
+  const [dailyLimit, setDailyLimit] = useState(30);
+
   
   // Estados Dinâmicos
   const [instances, setInstances] = useState<Instance[]>([]);
@@ -223,6 +228,9 @@ export default function Dashboard() {
           setListenShopee(data.listenShopee !== undefined ? data.listenShopee : true);
           setListenMercadoLivre(data.listenMercadoLivre !== undefined ? data.listenMercadoLivre : true);
           setMercadolivreOnlyShort(data.mercadolivreOnlyShort !== undefined ? data.mercadolivreOnlyShort : false);
+          setSendWindowStart(data.sendWindowStart || '08:00');
+          setSendWindowEnd(data.sendWindowEnd || '18:00');
+          setDailyLimit(data.dailyLimit !== undefined ? data.dailyLimit : 30);
         }
       }
     } catch (err) {
@@ -251,7 +259,10 @@ export default function Dashboard() {
           listenAmazon,
           listenShopee,
           listenMercadoLivre,
-          mercadolivreOnlyShort
+          mercadolivreOnlyShort,
+          sendWindowStart,
+          sendWindowEnd,
+          dailyLimit: Number(dailyLimit)
         })
       });
       if (res.ok) {
@@ -1104,6 +1115,56 @@ export default function Dashboard() {
                       className="w-full bg-[#0d0e12] border border-gray-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-all text-gray-200"
                     />
                   </div>
+                </div>
+
+                <div className="border-t border-gray-800 pt-4 mt-2">
+                  <h3 className="text-xs font-semibold text-emerald-400 mb-3 uppercase tracking-wider">Controle de Envio (Fila & Limites)</h3>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                    <div>
+                      <label className="block text-xs text-gray-400 font-semibold mb-2 flex items-center justify-between">
+                        <span>Início da Janela</span>
+                        <span className="text-[10px] text-gray-500 font-normal">Ex: 08:00</span>
+                      </label>
+                      <input 
+                        type="time" 
+                        value={sendWindowStart}
+                        onChange={(e) => setSendWindowStart(e.target.value)}
+                        className="w-full bg-[#0d0e12] border border-gray-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-all text-gray-200"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs text-gray-400 font-semibold mb-2 flex items-center justify-between">
+                        <span>Fim da Janela</span>
+                        <span className="text-[10px] text-gray-500 font-normal">Ex: 18:00</span>
+                      </label>
+                      <input 
+                        type="time" 
+                        value={sendWindowEnd}
+                        onChange={(e) => setSendWindowEnd(e.target.value)}
+                        className="w-full bg-[#0d0e12] border border-gray-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-all text-gray-200"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs text-gray-400 font-semibold mb-2 flex items-center justify-between">
+                        <span>Limite Diário (Mensagens)</span>
+                        <span className="text-[10px] text-gray-500 font-normal">Ex: 30</span>
+                      </label>
+                      <input 
+                        type="number" 
+                        min="1"
+                        placeholder="30"
+                        value={dailyLimit}
+                        onChange={(e) => setDailyLimit(Number(e.target.value))}
+                        className="w-full bg-[#0d0e12] border border-gray-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-all text-gray-200"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-[9px] text-gray-500 mt-1">
+                    As ofertas capturadas serão adicionadas a uma fila e enviadas respeitando o horário permitido e o limite diário de disparos (com intervalo mínimo de 5 minutos entre cada envio para evitar spam).
+                  </p>
                 </div>
 
                 <div className="pt-4 border-t border-gray-800">

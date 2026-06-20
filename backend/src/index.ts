@@ -253,7 +253,10 @@ app.get('/api/user/affiliate', async (req, res) => {
         listenAmazon: true,
         listenShopee: true,
         listenMercadoLivre: true,
-        mercadolivreOnlyShort: true
+        mercadolivreOnlyShort: true,
+        sendWindowStart: true,
+        sendWindowEnd: true,
+        dailyLimit: true
       }
     });
     res.json(user);
@@ -276,7 +279,10 @@ app.post('/api/user/affiliate', async (req, res) => {
     listenAmazon,
     listenShopee,
     listenMercadoLivre,
-    mercadolivreOnlyShort
+    mercadolivreOnlyShort,
+    sendWindowStart,
+    sendWindowEnd,
+    dailyLimit
   } = req.body;
   try {
     const userId = await getUserId();
@@ -294,7 +300,10 @@ app.post('/api/user/affiliate', async (req, res) => {
         listenAmazon: listenAmazon !== undefined ? Boolean(listenAmazon) : undefined,
         listenShopee: listenShopee !== undefined ? Boolean(listenShopee) : undefined,
         listenMercadoLivre: listenMercadoLivre !== undefined ? Boolean(listenMercadoLivre) : undefined,
-        mercadolivreOnlyShort: mercadolivreOnlyShort !== undefined ? Boolean(mercadolivreOnlyShort) : undefined
+        mercadolivreOnlyShort: mercadolivreOnlyShort !== undefined ? Boolean(mercadolivreOnlyShort) : undefined,
+        sendWindowStart: sendWindowStart !== undefined ? String(sendWindowStart) : undefined,
+        sendWindowEnd: sendWindowEnd !== undefined ? String(sendWindowEnd) : undefined,
+        dailyLimit: dailyLimit !== undefined ? Number(dailyLimit) : undefined
       },
       select: {
         amazonId: true,
@@ -308,7 +317,10 @@ app.post('/api/user/affiliate', async (req, res) => {
         listenAmazon: true,
         listenShopee: true,
         listenMercadoLivre: true,
-        mercadolivreOnlyShort: true
+        mercadolivreOnlyShort: true,
+        sendWindowStart: true,
+        sendWindowEnd: true,
+        dailyLimit: true
       }
     });
     res.json({ success: true, user: updatedUser });
