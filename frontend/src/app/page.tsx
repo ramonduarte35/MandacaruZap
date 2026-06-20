@@ -14,7 +14,8 @@ import {
   Trash2,
   Check,
   X,
-  Sliders
+  Sliders,
+  Menu
 } from 'lucide-react';
 
 const API_URL = 'http://localhost:5050';
@@ -62,6 +63,7 @@ export default function Dashboard() {
   const [currentUser, setCurrentUser] = useState<{ id: string; email: string; name: string | null } | null>(null);
 
   const [activeTab, setActiveTab] = useState<'instances' | 'mapping' | 'manual' | 'logs' | 'settings'>('instances');
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   
   // Configurações de Afiliado
   const [amazonId, setAmazonId] = useState('');
@@ -595,30 +597,55 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0d0e12] text-gray-100 flex font-sans">
+    <div className="min-h-screen bg-[#0d0e12] text-gray-100 flex flex-col lg:flex-row font-sans relative overflow-hidden">
+      {/* Overlay Mobile */}
+      {isMobileMenuOpen && (
+        <div 
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden transition-all duration-300"
+          onClick={() => setIsMobileMenuOpen(false)}
+        />
+      )}
+
       {/* Sidebar */}
-      <aside className="w-64 bg-[#14161f] border-r border-gray-800 flex flex-col justify-between p-6">
+      <aside className={`w-64 bg-[#14161f] border-r border-gray-800 flex flex-col justify-between p-6 fixed inset-y-0 left-0 z-50 transform ${
+        isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
+      } lg:translate-x-0 lg:static transition-transform duration-300 ease-in-out`}>
         <div>
-          <div className="flex items-center gap-3 mb-8">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-green-500 to-emerald-400 flex items-center justify-center font-bold text-[#0d0e12] text-xl shadow-lg shadow-emerald-500/20">
-              MZ
+          <div className="flex items-center justify-between gap-3 mb-8">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-green-500 to-emerald-400 flex items-center justify-center font-bold text-[#0d0e12] text-xl shadow-lg shadow-emerald-500/20">
+                MZ
+              </div>
+              <div>
+                <h1 className="font-bold text-lg leading-none">MandacaruZap</h1>
+                <span className="text-xs text-emerald-400 font-medium">WhatsApp SaaS</span>
+              </div>
             </div>
-            <div>
-              <h1 className="font-bold text-lg leading-none">MandacaruZap</h1>
-              <span className="text-xs text-emerald-400 font-medium">WhatsApp SaaS</span>
-            </div>
+            {/* Botão de Fechar no Mobile */}
+            <button 
+              onClick={() => setIsMobileMenuOpen(false)}
+              className="lg:hidden p-2 text-gray-400 hover:text-gray-200 hover:bg-[#1a1d29] rounded-lg transition-all"
+            >
+              <X size={18} />
+            </button>
           </div>
 
           <nav className="space-y-1">
             <button 
-              onClick={() => setActiveTab('instances')}
+              onClick={() => {
+                setActiveTab('instances');
+                setIsMobileMenuOpen(false);
+              }}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${activeTab === 'instances' ? 'bg-[#222533] text-emerald-400 shadow-md shadow-black/10' : 'text-gray-400 hover:bg-[#1a1d29] hover:text-gray-200'}`}
             >
               <QrCode size={18} />
               Conexões WhatsApp
             </button>
             <button 
-              onClick={() => setActiveTab('mapping')}
+              onClick={() => {
+                setActiveTab('mapping');
+                setIsMobileMenuOpen(false);
+              }}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${activeTab === 'mapping' ? 'bg-[#222533] text-emerald-400 shadow-md shadow-black/10' : 'text-gray-400 hover:bg-[#1a1d29] hover:text-gray-200'}`}
             >
               <Layers size={18} />
@@ -627,6 +654,7 @@ export default function Dashboard() {
             <button 
               onClick={() => {
                 setActiveTab('manual');
+                setIsMobileMenuOpen(false);
                 const firstConnected = instances.find(i => i.status === 'CONNECTED');
                 if (firstConnected) setManualInstanceId(firstConnected.id);
               }}
@@ -638,6 +666,7 @@ export default function Dashboard() {
             <button 
               onClick={() => {
                 setActiveTab('logs');
+                setIsMobileMenuOpen(false);
                 fetchLogs();
               }}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${activeTab === 'logs' ? 'bg-[#222533] text-emerald-400 shadow-md shadow-black/10' : 'text-gray-400 hover:bg-[#1a1d29] hover:text-gray-200'}`}
@@ -648,6 +677,7 @@ export default function Dashboard() {
             <button 
               onClick={() => {
                 setActiveTab('settings');
+                setIsMobileMenuOpen(false);
                 fetchAffiliateSettings();
               }}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${activeTab === 'settings' ? 'bg-[#222533] text-emerald-400 shadow-md shadow-black/10' : 'text-gray-400 hover:bg-[#1a1d29] hover:text-gray-200'}`}
@@ -680,26 +710,52 @@ export default function Dashboard() {
         </div>
       </aside>
 
-      {/* Main Content Area */}
-      <main className="flex-1 p-8 overflow-y-auto">
-        <header className="flex justify-between items-center mb-8">
-          <div>
-            <h2 className="text-2xl font-bold font-mono">
-              {activeTab === 'instances' && 'Conexões do WhatsApp'}
-              {activeTab === 'mapping' && 'Mapeamento de Grupos'}
-              {activeTab === 'manual' && 'Gerador & Disparo Manual'}
-              {activeTab === 'logs' && 'Logs e Atividades'}
-              {activeTab === 'settings' && 'Configurações de Afiliado'}
-            </h2>
-            <p className="text-xs text-gray-400 mt-1">
-              {activeTab === 'instances' && 'Gerencie seus múltiplos números de WhatsApp e sessões ativas.'}
-              {activeTab === 'mapping' && 'Configure quais grupos de origem serão monitorados e quais grupos de destino receberão as ofertas.'}
-              {activeTab === 'manual' && 'Cole links de produtos suportados para conversão de afiliados e disparo manual imediato.'}
-              {activeTab === 'logs' && 'Histórico completo de links capturados, convertidos e mensagens enviadas.'}
-              {activeTab === 'settings' && 'Configure seus IDs de afiliado da Amazon, Shopee e Mercado Livre para conversão automática.'}
-            </p>
+      {/* Main Content Area Container */}
+      <div className="flex-1 flex flex-col min-h-screen overflow-hidden">
+        {/* Top Header Mobile */}
+        <header className="lg:hidden flex items-center justify-between px-4 py-3 bg-[#14161f] border-b border-gray-800 sticky top-0 z-30">
+          <div className="flex items-center gap-3">
+            <button 
+              onClick={() => setIsMobileMenuOpen(true)}
+              className="p-2 -ml-2 text-gray-400 hover:text-gray-200 rounded-lg hover:bg-[#1a1d29] transition-all"
+              aria-label="Abrir menu"
+            >
+              <Menu size={20} />
+            </button>
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-green-500 to-emerald-400 flex items-center justify-center font-bold text-[#0d0e12] text-sm shadow-md shadow-emerald-500/10">
+                MZ
+              </div>
+              <span className="font-bold text-sm tracking-wider font-mono">MandacaruZap</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-full bg-emerald-500/20 flex items-center justify-center font-bold text-emerald-400 text-xs uppercase">
+              {currentUser?.name ? currentUser.name.substring(0, 2) : 'US'}
+            </div>
           </div>
         </header>
+
+        {/* Main Content Area */}
+        <main className="flex-1 p-4 md:p-8 overflow-y-auto">
+          <header className="flex justify-between items-center mb-8">
+            <div>
+              <h2 className="text-xl md:text-2xl font-bold font-mono">
+                {activeTab === 'instances' && 'Conexões do WhatsApp'}
+                {activeTab === 'mapping' && 'Mapeamento de Grupos'}
+                {activeTab === 'manual' && 'Gerador & Disparo Manual'}
+                {activeTab === 'logs' && 'Logs e Atividades'}
+                {activeTab === 'settings' && 'Configurações de Afiliado'}
+              </h2>
+              <p className="text-xs text-gray-400 mt-1">
+                {activeTab === 'instances' && 'Gerencie seus múltiplos números de WhatsApp e sessões ativas.'}
+                {activeTab === 'mapping' && 'Configure quais grupos de origem serão monitorados e quais grupos de destino receberão as ofertas.'}
+                {activeTab === 'manual' && 'Cole links de produtos suportados para conversão de afiliados e disparo manual imediato.'}
+                {activeTab === 'logs' && 'Histórico completo de links capturados, convertidos e mensagens enviadas.'}
+                {activeTab === 'settings' && 'Configure seus IDs de afiliado da Amazon, Shopee e Mercado Livre para conversão automática.'}
+              </p>
+            </div>
+          </header>
 
         {/* TAB 1: INSTANCES */}
         {activeTab === 'instances' && (
@@ -1346,6 +1402,7 @@ export default function Dashboard() {
           </div>
         )}
       </main>
+    </div>
 
       {/* MODAL: NOVA CONEXÃO */}
       {showNewInstanceModal && (
