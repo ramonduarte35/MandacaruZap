@@ -109,6 +109,7 @@ interface UserAffiliateConfig {
   mercadolivreTool?: string | null;
   mercadolivreWord?: string | null;
   mercadolivreCookie?: string | null;
+  cookieNotificationPhone?: string | null;
 }
 
 /**
@@ -175,7 +176,8 @@ export async function expandUrl(url: string): Promise<string> {
  */
 export async function convertToAffiliateLink(
   url: string,
-  user: UserAffiliateConfig
+  user: UserAffiliateConfig,
+  onAuthError?: () => Promise<void>
 ): Promise<string> {
   const expandedUrl = await expandUrl(url);
   const parsedUrl = new URL(expandedUrl);
@@ -234,6 +236,15 @@ export async function convertToAffiliateLink(
           timeout: 8000
         });
 
+        // Detecção de expiração se redirecionado para a tela de login/captcha
+        const finalUrl = pageResponse.request?.res?.responseUrl || '';
+        if (finalUrl.includes('login') || finalUrl.includes('verification') || finalUrl.includes('show-captcha') || finalUrl.includes('recaptcha')) {
+          console.warn('[Affiliate] Redirecionado para página de login. Cookie expirado!');
+          if (onAuthError) {
+            onAuthError().catch(err => console.error('[Affiliate] Erro ao disparar onAuthError:', err));
+          }
+        }
+
         // 2. Mesclar novos cookies do set-cookie para manter sessão viva
         const setCookieHeaders: string[] = pageResponse.headers['set-cookie'] || [];
         const cookieMap: Record<string, string> = {};
@@ -274,6 +285,13 @@ export async function convertToAffiliateLink(
           html.match(/csrfToken\s*=\s*"([^"]+)"/i);
         const csrfToken = csrfMatch ? csrfMatch[1] : '';
         console.log(`[Affiliate] CSRF Token: ${csrfToken ? 'ENCONTRADO' : 'NÃO ENCONTRADO'}`);
+
+        if (!csrfToken) {
+          console.warn('[Affiliate] CSRF Token não encontrado. Cookie pode ter expirado.');
+          if (onAuthError) {
+            onAuthError().catch(err => console.error('[Affiliate] Erro ao disparar onAuthError:', err));
+          }
+        }
 
         // 4. Buscar tags disponíveis via API e escolher a correta
         const availableTags = user.id
@@ -358,6 +376,13 @@ export async function convertToAffiliateLink(
         console.warn('[Affiliate] Não foi possível extrair URL gerada. Indo para fallback.');
       } catch (apiErr: any) {
         console.error('[Affiliate] Erro no fluxo de cookie ML:', apiErr?.response?.status, apiErr?.message);
+        const status = apiErr?.response?.status;
+        if (status === 401 || status === 403) {
+          console.warn('[Affiliate] Erro 401/403 detectado na API do Mercado Livre. Cookie expirado!');
+          if (onAuthError) {
+            onAuthError().catch(err => console.error('[Affiliate] Erro ao disparar onAuthError no catch:', err));
+          }
+        }
       }
     }
 

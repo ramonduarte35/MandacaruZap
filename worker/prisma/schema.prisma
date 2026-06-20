@@ -1,6 +1,6 @@
 datasource db {
-  provider = "sqlite"
-  url      = "file:../../backend/prisma/dev.db"
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 generator client {
@@ -23,6 +23,13 @@ model User {
   mercadolivreTool    String?
   mercadolivreWord    String?
   mercadolivreCookie  String?
+  cookieNotificationPhone String?
+  
+  // Configurações de Escuta/Marketplace
+  listenAmazon       Boolean            @default(true)
+  listenShopee       Boolean            @default(true)
+  listenMercadoLivre Boolean            @default(true)
+  mercadolivreOnlyShort Boolean            @default(false)
   
   // Relações
   instances      WhatsappInstance[]

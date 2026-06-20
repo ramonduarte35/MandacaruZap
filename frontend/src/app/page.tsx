@@ -67,6 +67,17 @@ export default function Dashboard() {
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [settingsSavedMessage, setSettingsSavedMessage] = useState(false);
 
+  // Filtro de Marketplaces Monitorados
+  const [listenAmazon, setListenAmazon] = useState(true);
+  const [listenShopee, setListenShopee] = useState(true);
+  const [listenMercadoLivre, setListenMercadoLivre] = useState(true);
+
+  // Alerta de Cookie via WhatsApp
+  const [cookieNotificationPhone, setCookieNotificationPhone] = useState('');
+
+  // Apenas Links Curtos Meli
+  const [mercadolivreOnlyShort, setMercadolivreOnlyShort] = useState(false);
+
   
   // Estados Dinâmicos
   const [instances, setInstances] = useState<Instance[]>([]);
@@ -207,6 +218,11 @@ export default function Dashboard() {
           setMercadolivreTool(data.mercadolivreTool || '');
           setMercadolivreWord(data.mercadolivreWord || '');
           setMercadolivreCookie(data.mercadolivreCookie || '');
+          setCookieNotificationPhone(data.cookieNotificationPhone || '');
+          setListenAmazon(data.listenAmazon !== undefined ? data.listenAmazon : true);
+          setListenShopee(data.listenShopee !== undefined ? data.listenShopee : true);
+          setListenMercadoLivre(data.listenMercadoLivre !== undefined ? data.listenMercadoLivre : true);
+          setMercadolivreOnlyShort(data.mercadolivreOnlyShort !== undefined ? data.mercadolivreOnlyShort : false);
         }
       }
     } catch (err) {
@@ -230,7 +246,12 @@ export default function Dashboard() {
           mercadolivreChannel,
           mercadolivreTool,
           mercadolivreWord,
-          mercadolivreCookie
+          mercadolivreCookie,
+          cookieNotificationPhone,
+          listenAmazon,
+          listenShopee,
+          listenMercadoLivre,
+          mercadolivreOnlyShort
         })
       });
       if (res.ok) {
@@ -895,6 +916,41 @@ export default function Dashboard() {
               )}
 
               <div className="space-y-5">
+                {/* Seleção de Marketplaces Ativos */}
+                <div className="bg-[#0d0e12] p-4 rounded-xl border border-gray-800 space-y-3">
+                  <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-400">Marketplaces Monitorados</h4>
+                  <p className="text-[10px] text-gray-500">Escolha quais marketplaces o bot deve monitorar nos grupos de origem e encaminhar ofertas.</p>
+                  <div className="flex flex-wrap gap-6 pt-1">
+                    <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-200 select-none">
+                      <input 
+                        type="checkbox" 
+                        checked={listenAmazon} 
+                        onChange={(e) => setListenAmazon(e.target.checked)} 
+                        className="rounded border-gray-800 text-emerald-500 focus:ring-emerald-500 bg-[#14161f] w-4 h-4 cursor-pointer"
+                      />
+                      <span>Amazon</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-200 select-none">
+                      <input 
+                        type="checkbox" 
+                        checked={listenShopee} 
+                        onChange={(e) => setListenShopee(e.target.checked)} 
+                        className="rounded border-gray-800 text-emerald-500 focus:ring-emerald-500 bg-[#14161f] w-4 h-4 cursor-pointer"
+                      />
+                      <span>Shopee</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-200 select-none">
+                      <input 
+                        type="checkbox" 
+                        checked={listenMercadoLivre} 
+                        onChange={(e) => setListenMercadoLivre(e.target.checked)} 
+                        className="rounded border-gray-800 text-emerald-500 focus:ring-emerald-500 bg-[#14161f] w-4 h-4 cursor-pointer"
+                      />
+                      <span>Mercado Livre</span>
+                    </label>
+                  </div>
+                </div>
+
                 <div>
                   <label className="block text-xs text-gray-400 font-semibold mb-2 flex items-center justify-between">
                     <span>Amazon Associate Tag (ID de Associado)</span>
@@ -946,6 +1002,34 @@ export default function Dashboard() {
                       <p className="text-[10px] text-emerald-500 mt-1">✅ {meliAvailableTags.length} etiqueta(s) encontrada(s): {meliAvailableTags.join(', ')}</p>
                     )}
 
+                  </div>
+
+                  <div className="mb-4">
+                    <label className="block text-xs text-gray-400 font-semibold mb-2 flex items-center justify-between">
+                      <span>Telefone para Notificações de Cookies Expirados (WhatsApp)</span>
+                      <span className="text-[10px] text-gray-500 font-normal">Código do país + DDD + Telefone (ex: 5586999999999)</span>
+                    </label>
+                    <input 
+                      type="text" 
+                      placeholder="Ex: 5586999999999"
+                      value={cookieNotificationPhone}
+                      onChange={(e) => setCookieNotificationPhone(e.target.value)}
+                      className="w-full bg-[#0d0e12] border border-gray-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-all text-gray-200"
+                    />
+                    <p className="text-[9px] text-gray-500 mt-1">Ao expirar, o bot enviará uma mensagem privada para este número. Responda-a com o novo cookie para atualizar automaticamente.</p>
+                  </div>
+
+                  <div className="mb-4">
+                    <label className="flex items-center gap-2 cursor-pointer text-xs text-gray-400 select-none">
+                      <input 
+                        type="checkbox" 
+                        checked={mercadolivreOnlyShort} 
+                        onChange={(e) => setMercadolivreOnlyShort(e.target.checked)} 
+                        className="rounded border-gray-800 text-emerald-500 focus:ring-emerald-500 bg-[#14161f] w-4 h-4 cursor-pointer"
+                      />
+                      <span>Restringir envio: Enviar apenas se o link for encurtado oficialmente (Meli.la)</span>
+                    </label>
+                    <p className="text-[9px] text-gray-500 mt-1 ml-6">Impede o envio de links longos sociais do Mercado Livre quando os cookies de sessão falharem.</p>
                   </div>
 
                   <h3 className="text-xs font-semibold text-gray-400 mb-3 uppercase tracking-wider">Mercado Livre (Fallback / Canais Sociais)</h3>

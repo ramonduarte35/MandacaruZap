@@ -4,6 +4,9 @@ import { scrapeProductData } from '../processor/scraper';
 import { convertToAffiliateLink, expandUrl } from '../processor/affiliate';
 import { broadcastMessage } from '../broadcaster/sender';
 
+// Cache de controle de envio de alertas de expiração de cookies (userId -> timestamp)
+const lastAlertMap = new Map<string, number>();
+
 // Expressões regulares para links da Amazon, Shopee e Mercado Livre
 const SUPPORTED_DOMAINS_REGEX = /(https?:\/\/[^\s]*?(?:amazon\.com\.br|amzn\.to|shopee\.com\.br|shp\.ee|mercadolivre\.com\.br|mercadolivre\.co|produto\.mercadolivre\.com\.br|meli\.la)[^\s]*)/gi;
 
@@ -56,6 +59,51 @@ export async function handleIncomingMessage(
   // Só escuta mensagens vindas de grupos (JIDs terminando com @g.us)
   const isGroup = fromJid.endsWith('@g.us');
   if (!isGroup) {
+    // Tratamento de mensagens privadas para atualização de cookies do administrador
+    const senderNumber = fromJid.split('@')[0];
+    
+    try {
+      // Busca se existe algum usuário cadastrado que possua este número de telefone configurado para notificações
+      const user = await prisma.user.findFirst({
+        where: {
+          cookieNotificationPhone: {
+            contains: senderNumber
+          }
+        }
+      });
+
+      if (user) {
+        const text = getMessageText(message).trim();
+        
+        // Detecta se a mensagem contém indícios de cookies
+        const hasCookiePrefix = text.toLowerCase().startsWith('cookie:');
+        const hasCookieIndicators = text.includes('ssid=') || text.includes('_csrf=') || text.includes('client_id=');
+
+        if (hasCookiePrefix || hasCookieIndicators) {
+          let cookieVal = text;
+          if (hasCookiePrefix) {
+            cookieVal = text.substring(7).trim();
+          }
+
+          // Atualiza o cookie no banco de dados
+          await prisma.user.update({
+            where: { id: user.id },
+            data: { mercadolivreCookie: cookieVal }
+          });
+
+          // Envia resposta de sucesso pelo WhatsApp
+          await sock.sendMessage(fromJid, {
+            text: `✅ *MandacaruZap - Cookie Atualizado!*\n\nO novo cookie do Mercado Livre foi atualizado no sistema com sucesso. Ele será utilizado nas próximas gerações de links oficiais.`
+          });
+          
+          console.log(`[Listener] Cookie do Mercado Livre atualizado via WhatsApp pelo administrador: ${user.email}`);
+          return;
+        }
+      }
+    } catch (dbErr) {
+      console.error('[Listener] Erro ao tratar mensagem privada do admin para cookies:', dbErr);
+    }
+
     console.log(`[Listener] Message ${message.key.id} from ${fromJid} skipped: not a group message.`);
     return;
   }
@@ -101,14 +149,82 @@ export async function handleIncomingMessage(
         // 1. Expande a URL encurtada
         const expandedUrl = await expandUrl(originalUrl);
 
+        // Verificar se os marketplaces correspondentes estão ativados no usuário
+        const isAmazon = expandedUrl.includes('amazon.com.br') || originalUrl.includes('amzn.to');
+        const isShopee = expandedUrl.includes('shopee.com.br') || originalUrl.includes('shp.ee');
+        const isMeli = expandedUrl.includes('mercadolivre.com.br') || expandedUrl.includes('meli.la') || originalUrl.includes('meli.la');
+
+        if (isAmazon && !mapping.user.listenAmazon) {
+          console.log(`[Listener] Amazon link ignored for user ${mapping.user.email} (listenAmazon = false)`);
+          continue;
+        }
+        if (isShopee && !mapping.user.listenShopee) {
+          console.log(`[Listener] Shopee link ignored for user ${mapping.user.email} (listenShopee = false)`);
+          continue;
+        }
+        if (isMeli && !mapping.user.listenMercadoLivre) {
+          console.log(`[Listener] Mercado Livre link ignored for user ${mapping.user.email} (listenMercadoLivre = false)`);
+          continue;
+        }
+
         // 2. Extração de Metadados (Scraping)
         const productData = await scrapeProductData(expandedUrl);
 
         // 3. Substituição dos IDs de Afiliados
         const convertedUrl = await convertToAffiliateLink(
           expandedUrl,
-          mapping.user
+          mapping.user,
+          async () => {
+            const userId = mapping.userId;
+            const now = Date.now();
+            const lastAlert = lastAlertMap.get(userId) || 0;
+            
+            // Envia alerta 1 vez a cada 12 horas por usuário
+            if (now - lastAlert > 12 * 60 * 60 * 1000) {
+              lastAlertMap.set(userId, now);
+              
+              const phone = mapping.user.cookieNotificationPhone;
+              if (phone) {
+                const cleanPhone = phone.replace(/\D/g, '');
+                const destJid = cleanPhone.includes('@') ? cleanPhone : `${cleanPhone}@s.whatsapp.net`;
+                console.log(`[Listener] Enviando alerta de expiração de cookie para o admin ${destJid}`);
+                
+                try {
+                  await sock.sendMessage(destJid, {
+                    text: `⚠️ *MandacaruZap - Alerta de Sessão!*\n\nO seu cookie do Mercado Livre expirou. Os links estão sendo gerados usando o fluxo de fallback (links de canal social).\n\nPara atualizar, por favor responda a esta mensagem enviando o novo cookie (ou comece a mensagem com "cookie:").`
+                  });
+                } catch (sendErr) {
+                  console.error('[Listener] Falha ao enviar mensagem de alerta para admin:', sendErr);
+                }
+              } else {
+                console.warn(`[Listener] Sessão expirada para o usuário ${mapping.user.email}, mas nenhum telefone de notificação está configurado.`);
+              }
+            }
+          }
         );
+
+        // Validar restrição de links curtos do Mercado Livre
+        if (isMeli && mapping.user.mercadolivreOnlyShort) {
+          const isShortMeli = convertedUrl.includes('meli.la');
+          if (!isShortMeli) {
+            const warnMsg = "Link do Mercado Livre nao enviado: a geracao oficial de link encurtado falhou e a restricao de links curtos esta ativa.";
+            console.warn(`[Listener] ${warnMsg}`);
+            
+            // Grava o log de erro específico
+            await prisma.log.create({
+              data: {
+                originalUrl,
+                status: 'FAILED',
+                errorMessage: 'O link foi capturado, porem nao pode ser encurtado via cookies (opcao "Apenas Links Curtos" ativa).',
+                sourceGroup: fromJid,
+                destGroups: mapping.destGroupIds,
+                userId: mapping.userId,
+                instanceId: instanceId
+              }
+            });
+            continue; // Ignora e pula para a próxima URL
+          }
+        }
 
         // 3. Montagem da Copy
         const copy = buildCopy(productData, convertedUrl);

@@ -23,7 +23,7 @@ async function main() {
         amazonId: 'ramonamazon-20',
         shopeeId: 'ramonshopee_aff',
         mercadolivreId: 'ramonml_aff',
-        mercadolivreChannel: 'ramonduarte1',
+        mercadolivreChannel: 'ramonduarte',
         mercadolivreTool: '85424440',
         mercadolivreWord: 'ramonduarte'
       }
@@ -33,7 +33,7 @@ async function main() {
     user = await prisma.user.update({
       where: { email },
       data: {
-        mercadolivreChannel: 'ramonduarte1',
+        mercadolivreChannel: 'ramonduarte',
         mercadolivreTool: '85424440',
         mercadolivreWord: 'ramonduarte'
       }

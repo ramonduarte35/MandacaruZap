@@ -248,7 +248,12 @@ app.get('/api/user/affiliate', async (req, res) => {
         mercadolivreChannel: true,
         mercadolivreTool: true,
         mercadolivreWord: true,
-        mercadolivreCookie: true
+        mercadolivreCookie: true,
+        cookieNotificationPhone: true,
+        listenAmazon: true,
+        listenShopee: true,
+        listenMercadoLivre: true,
+        mercadolivreOnlyShort: true
       }
     });
     res.json(user);
@@ -266,7 +271,12 @@ app.post('/api/user/affiliate', async (req, res) => {
     mercadolivreChannel,
     mercadolivreTool,
     mercadolivreWord,
-    mercadolivreCookie
+    mercadolivreCookie,
+    cookieNotificationPhone,
+    listenAmazon,
+    listenShopee,
+    listenMercadoLivre,
+    mercadolivreOnlyShort
   } = req.body;
   try {
     const userId = await getUserId();
@@ -279,7 +289,12 @@ app.post('/api/user/affiliate', async (req, res) => {
         mercadolivreChannel,
         mercadolivreTool,
         mercadolivreWord,
-        mercadolivreCookie
+        mercadolivreCookie,
+        cookieNotificationPhone,
+        listenAmazon: listenAmazon !== undefined ? Boolean(listenAmazon) : undefined,
+        listenShopee: listenShopee !== undefined ? Boolean(listenShopee) : undefined,
+        listenMercadoLivre: listenMercadoLivre !== undefined ? Boolean(listenMercadoLivre) : undefined,
+        mercadolivreOnlyShort: mercadolivreOnlyShort !== undefined ? Boolean(mercadolivreOnlyShort) : undefined
       },
       select: {
         amazonId: true,
@@ -288,7 +303,12 @@ app.post('/api/user/affiliate', async (req, res) => {
         mercadolivreChannel: true,
         mercadolivreTool: true,
         mercadolivreWord: true,
-        mercadolivreCookie: true
+        mercadolivreCookie: true,
+        cookieNotificationPhone: true,
+        listenAmazon: true,
+        listenShopee: true,
+        listenMercadoLivre: true,
+        mercadolivreOnlyShort: true
       }
     });
     res.json({ success: true, user: updatedUser });
