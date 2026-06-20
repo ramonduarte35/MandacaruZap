@@ -1234,13 +1234,19 @@ export default function Dashboard() {
                         <td className="px-6 py-4 text-xs text-emerald-400 font-semibold">{log.price || 'N/A'}</td>
                         <td className="px-6 py-4">
                           <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold ${
-                            log.status === 'SENT' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'
+                            log.status === 'SENT'   ? 'bg-emerald-500/10 text-emerald-400' :
+                            log.status === 'QUEUED' ? 'bg-amber-500/10 text-amber-400' :
+                                                      'bg-red-500/10 text-red-400'
                           }`}>
-                            {log.status === 'SENT' ? 'Enviado' : 'Falhou'}
+                            {log.status === 'SENT'   ? '✓ Enviado' :
+                             log.status === 'QUEUED' ? '🕐 Na Fila' :
+                                                       '✕ Falhou'}
                           </span>
                         </td>
                         <td className="px-6 py-4 text-[10px] text-gray-400 max-w-[300px] truncate" title={log.errorMessage || log.convertedUrl || ''}>
-                          {log.status === 'SENT' ? log.convertedUrl : log.errorMessage}
+                          {log.status === 'SENT'   ? log.convertedUrl :
+                           log.status === 'QUEUED' ? 'Aguardando janela de envio...' :
+                                                     log.errorMessage}
                         </td>
                       </tr>
                     ))}
