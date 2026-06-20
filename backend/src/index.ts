@@ -3,22 +3,50 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { PrismaClient } from '@prisma/client';
 import axios from 'axios';
+import jwt from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
+import { Request, Response, NextFunction } from 'express';
 
+declare global {
+  namespace Express {
+    interface Request {
+      userId?: string;
+    }
+  }
+}
 
 dotenv.config();
 
 const app = express();
 const prisma = new PrismaClient();
 const PORT = process.env.PORT || 5050;
+const JWT_SECRET = process.env.JWT_SECRET || 'mandacaruzap-secret-key-123';
 
 app.use(cors());
 app.use(express.json());
 
-// Função auxiliar para obter o ID do primeiro usuário (seeded admin)
-const getUserId = async (): Promise<string> => {
-  const user = await prisma.user.findFirst();
-  return user?.id || '';
+const requireAuth = (req: Request, res: Response, next: NextFunction) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Não autorizado. Token de sessão ausente.' });
+  }
+  const token = authHeader.split(' ')[1];
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string };
+    req.userId = decoded.userId;
+    next();
+  } catch (e) {
+    return res.status(401).json({ error: 'Sessão expirada ou inválida.' });
+  }
 };
+
+// Middleware para proteger todas as rotas /api/* exceto auth
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/') && !req.path.startsWith('/api/auth/')) {
+    return requireAuth(req, res, next);
+  }
+  next();
+});
 
 // 1. Health check
 app.get('/health', async (req, res) => {
@@ -30,10 +58,49 @@ app.get('/health', async (req, res) => {
   }
 });
 
-// 2. Listar instâncias do WhatsApp
+// 0. Autenticação (Login)
+app.post('/api/auth/login', async (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) {
+    return res.status(400).json({ error: 'E-mail e senha são obrigatórios.' });
+  }
+
+  try {
+    const user = await prisma.user.findUnique({
+      where: { email }
+    });
+
+    if (!user) {
+      return res.status(401).json({ error: 'E-mail ou senha incorretos.' });
+    }
+
+    const isMatch = await bcrypt.compare(password, user.passwordHash);
+    if (!isMatch) {
+      return res.status(401).json({ error: 'E-mail ou senha incorretos.' });
+    }
+
+    const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '7d' });
+
+    res.json({
+      success: true,
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ error: String(error) });
+  }
+});
+
+// 2. Listar instâncias do WhatsApp do usuário
 app.get('/api/instances', async (req, res) => {
   try {
+    const userId = req.userId || '';
     const instances = await prisma.whatsappInstance.findMany({
+      where: { userId },
       orderBy: { createdAt: 'desc' }
     });
     res.json(instances);
@@ -45,7 +112,14 @@ app.get('/api/instances', async (req, res) => {
 // 2b. Listar grupos do WhatsApp associados a uma instância conectada
 app.get('/api/instances/:id/groups', async (req, res) => {
   const { id } = req.params;
+  const userId = req.userId || '';
   try {
+    const instance = await prisma.whatsappInstance.findFirst({
+      where: { id, userId }
+    });
+    if (!instance) {
+      return res.status(404).json({ error: 'Instância não encontrada ou não pertence ao seu usuário.' });
+    }
     const response = await fetch(`http://localhost:5001/instances/${id}/groups`);
     const data = await response.json();
     if (!response.ok) {
@@ -57,7 +131,7 @@ app.get('/api/instances/:id/groups', async (req, res) => {
   }
 });
 
-// 3. Criar uma nova instância do WhatsApp
+// 3. Criar uma nova instância do WhatsApp para o usuário
 app.post('/api/instances', async (req, res) => {
   const { name } = req.body;
   if (!name) {
@@ -65,7 +139,7 @@ app.post('/api/instances', async (req, res) => {
   }
 
   try {
-    const userId = await getUserId();
+    const userId = req.userId || '';
     const instance = await prisma.whatsappInstance.create({
       data: {
         name,
@@ -88,7 +162,14 @@ app.post('/api/instances', async (req, res) => {
 // 4. Iniciar ou reconectar instância manualmente
 app.post('/api/instances/:id/start', async (req, res) => {
   const { id } = req.params;
+  const userId = req.userId || '';
   try {
+    const instance = await prisma.whatsappInstance.findFirst({
+      where: { id, userId }
+    });
+    if (!instance) {
+      return res.status(404).json({ error: 'Instância não encontrada ou não pertence ao seu usuário.' });
+    }
     fetch(`http://localhost:5001/instances/${id}/start`, { method: 'POST' }).catch(err => {
       console.error('[Backend] Failed to start instance in worker:', err);
     });
@@ -101,7 +182,14 @@ app.post('/api/instances/:id/start', async (req, res) => {
 // 5. Parar conexão do WhatsApp
 app.post('/api/instances/:id/stop', async (req, res) => {
   const { id } = req.params;
+  const userId = req.userId || '';
   try {
+    const instance = await prisma.whatsappInstance.findFirst({
+      where: { id, userId }
+    });
+    if (!instance) {
+      return res.status(404).json({ error: 'Instância não encontrada ou não pertence ao seu usuário.' });
+    }
     fetch(`http://localhost:5001/instances/${id}/stop`, { method: 'POST' }).catch(err => {
       console.error('[Backend] Failed to stop instance in worker:', err);
     });
@@ -114,7 +202,14 @@ app.post('/api/instances/:id/stop', async (req, res) => {
 // 6. Excluir uma instância
 app.delete('/api/instances/:id', async (req, res) => {
   const { id } = req.params;
+  const userId = req.userId || '';
   try {
+    const instance = await prisma.whatsappInstance.findFirst({
+      where: { id, userId }
+    });
+    if (!instance) {
+      return res.status(404).json({ error: 'Instância não encontrada ou não pertence ao seu usuário.' });
+    }
     // Tenta parar a conexão no worker
     await fetch(`http://localhost:5001/instances/${id}/stop`, { method: 'POST' }).catch(() => {});
     
@@ -128,10 +223,12 @@ app.delete('/api/instances/:id', async (req, res) => {
   }
 });
 
-// 7. Listar mapeamento de grupos
+// 7. Listar mapeamento de grupos do usuário
 app.get('/api/mappings', async (req, res) => {
+  const userId = req.userId || '';
   try {
     const mappings = await prisma.groupMapping.findMany({
+      where: { userId },
       include: {
         instance: {
           select: { name: true }
@@ -153,8 +250,15 @@ app.post('/api/mappings', async (req, res) => {
     return res.status(400).json({ error: 'Missing parameters. Required: name, instanceId, sourceGroupId, destGroupIds' });
   }
 
+  const userId = req.userId || '';
   try {
-    const userId = await getUserId();
+    const instance = await prisma.whatsappInstance.findFirst({
+      where: { id: instanceId, userId }
+    });
+    if (!instance) {
+      return res.status(400).json({ error: 'Instância do WhatsApp não encontrada ou não pertence ao seu usuário.' });
+    }
+
     const mapping = await prisma.groupMapping.create({
       data: {
         name,
@@ -172,10 +276,17 @@ app.post('/api/mappings', async (req, res) => {
   }
 });
 
-// 9. Deletar mapeamento
+// 9. Excluir mapeamento de grupos
 app.delete('/api/mappings/:id', async (req, res) => {
   const { id } = req.params;
+  const userId = req.userId || '';
   try {
+    const mapping = await prisma.groupMapping.findFirst({
+      where: { id, userId }
+    });
+    if (!mapping) {
+      return res.status(404).json({ error: 'Mapeamento não encontrado ou não pertence ao seu usuário.' });
+    }
     await prisma.groupMapping.delete({
       where: { id }
     });
@@ -185,10 +296,12 @@ app.delete('/api/mappings/:id', async (req, res) => {
   }
 });
 
-// 10. Listar logs de atividades
+// 10. Listar logs de atividades do usuário
 app.get('/api/logs', async (req, res) => {
+  const userId = req.userId || '';
   try {
     const logs = await prisma.log.findMany({
+      where: { userId },
       orderBy: { createdAt: 'desc' },
       take: 100
     });
@@ -206,8 +319,14 @@ app.post('/api/manual-dispatch', async (req, res) => {
     return res.status(400).json({ error: 'Missing parameters. Required: instanceId, destGroupIds, url' });
   }
 
+  const userId = req.userId || '';
   try {
-    const userId = await getUserId();
+    const instance = await prisma.whatsappInstance.findFirst({
+      where: { id: instanceId, userId }
+    });
+    if (!instance) {
+      return res.status(400).json({ error: 'Instância do WhatsApp não encontrada ou não pertence ao seu usuário.' });
+    }
     
     // Encaminha a chamada de disparo para o Worker
     const response = await fetch('http://localhost:5001/instances/manual-dispatch', {
@@ -238,7 +357,7 @@ app.post('/api/manual-dispatch', async (req, res) => {
 // 12. Obter configurações de afiliado do usuário
 app.get('/api/user/affiliate', async (req, res) => {
   try {
-    const userId = await getUserId();
+    const userId = req.userId || '';
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -284,8 +403,8 @@ app.post('/api/user/affiliate', async (req, res) => {
     sendWindowEnd,
     dailyLimit
   } = req.body;
+  const userId = req.userId || '';
   try {
-    const userId = await getUserId();
     const updatedUser = await prisma.user.update({
       where: { id: userId },
       data: {
@@ -329,9 +448,10 @@ app.post('/api/user/affiliate', async (req, res) => {
   }
 });
 
+// 14. Buscar tags do Mercado Livre para o usuário logado
 app.get('/api/affiliate/meli-tags', async (req, res) => {
   try {
-    const userId = await getUserId();
+    const userId = req.userId || '';
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { mercadolivreCookie: true }
@@ -343,7 +463,6 @@ app.get('/api/affiliate/meli-tags', async (req, res) => {
 
     const userAgent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
-    // As tags estão embutidas no HTML da página do linkbuilder como "tags":[...]
     const pageRes = await axios.get('https://www.mercadolivre.com.br/afiliados/linkbuilder', {
       headers: {
         cookie: user.mercadolivreCookie,
@@ -355,7 +474,6 @@ app.get('/api/affiliate/meli-tags', async (req, res) => {
     });
 
     const html: string = pageRes.data;
-    // Extrai o array de tags do HTML: "tags":[{tag:"ramonduarte",...},...]
     const tagMatch = html.match(/"tags"\s*:\s*(\[[\s\S]*?\])/);
     let tags: string[] = [];
 

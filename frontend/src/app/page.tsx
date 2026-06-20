@@ -52,6 +52,15 @@ interface Log {
 }
 
 export default function Dashboard() {
+  // Estados de Autenticação
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [token, setToken] = useState<string | null>(null);
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [currentUser, setCurrentUser] = useState<{ id: string; email: string; name: string | null } | null>(null);
+
   const [activeTab, setActiveTab] = useState<'instances' | 'mapping' | 'manual' | 'logs' | 'settings'>('instances');
   
   // Configurações de Afiliado
@@ -82,6 +91,81 @@ export default function Dashboard() {
   const [sendWindowStart, setSendWindowStart] = useState('08:00');
   const [sendWindowEnd, setSendWindowEnd] = useState('18:00');
   const [dailyLimit, setDailyLimit] = useState(30);
+
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    setToken(null);
+    setCurrentUser(null);
+    setIsAuthenticated(false);
+  };
+
+  const authenticatedFetch = async (path: string, options: RequestInit = {}) => {
+    const activeToken = token || localStorage.getItem('token');
+    const headers = {
+      'Content-Type': 'application/json',
+      ...options.headers,
+      ...(activeToken ? { 'Authorization': `Bearer ${activeToken}` } : {})
+    };
+
+    const res = await fetch(`${API_URL}${path}`, {
+      ...options,
+      headers
+    });
+
+    if (res.status === 401) {
+      handleLogout();
+      throw new Error('Sessão expirada. Faça login novamente.');
+    }
+
+    return res;
+  };
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoggingIn(true);
+    setLoginError(null);
+    try {
+      const res = await fetch(`${API_URL}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: loginEmail, password: loginPassword })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setLoginError(data.error || 'Erro ao realizar login.');
+        return;
+      }
+
+      localStorage.setItem('token', data.token);
+      localStorage.setItem('user', JSON.stringify(data.user));
+      setToken(data.token);
+      setCurrentUser(data.user);
+      setIsAuthenticated(true);
+    } catch (err) {
+      setLoginError('Não foi possível conectar ao servidor.');
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  // Carregamento de token na inicialização
+  useEffect(() => {
+    const savedToken = localStorage.getItem('token');
+    const savedUser = localStorage.getItem('user');
+    if (savedToken) {
+      setToken(savedToken);
+      if (savedUser) {
+        try {
+          setCurrentUser(JSON.parse(savedUser));
+        } catch (e) {
+          console.error(e);
+        }
+      }
+      setIsAuthenticated(true);
+    }
+  }, []);
 
   
   // Estados Dinâmicos
@@ -118,12 +202,11 @@ export default function Dashboard() {
   const fetchMeliTags = async () => {
     setIsFetchingTags(true);
     try {
-      const res = await fetch(`${API_URL}/api/affiliate/meli-tags`);
+      const res = await authenticatedFetch('/api/affiliate/meli-tags');
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data.tags) && data.tags.length > 0) {
           setMeliAvailableTags(data.tags);
-          // Se o canal atual não existe na lista, usa a primeira tag disponível
           if (!mercadolivreChannel || !data.tags.includes(mercadolivreChannel)) {
             setMercadolivreChannel(data.tags[0]);
           }
@@ -143,7 +226,7 @@ export default function Dashboard() {
     }
     setIsLoadingGroups(true);
     try {
-      const res = await fetch(`${API_URL}/api/instances/${instanceId}/groups`);
+      const res = await authenticatedFetch(`/api/instances/${instanceId}/groups`);
       if (res.ok) {
         const data = await res.json();
         if (data.success && data.groups) {
@@ -163,17 +246,16 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
-    fetchGroups(selectedInstanceId);
-  }, [selectedInstanceId]);
+    if (isAuthenticated) fetchGroups(selectedInstanceId);
+  }, [selectedInstanceId, isAuthenticated]);
 
   useEffect(() => {
-    fetchGroups(manualInstanceId);
-  }, [manualInstanceId]);
+    if (isAuthenticated) fetchGroups(manualInstanceId);
+  }, [manualInstanceId, isAuthenticated]);
 
-  // Carrega instâncias
   const fetchInstances = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/instances`);
+      const res = await authenticatedFetch('/api/instances');
       if (res.ok) {
         const data = await res.json();
         setInstances(data);
@@ -183,10 +265,9 @@ export default function Dashboard() {
     }
   };
 
-  // Carrega mapeamentos
   const fetchMappings = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/mappings`);
+      const res = await authenticatedFetch('/api/mappings');
       if (res.ok) {
         const data = await res.json();
         setMappings(data);
@@ -196,10 +277,9 @@ export default function Dashboard() {
     }
   };
 
-  // Carrega logs
   const fetchLogs = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/logs`);
+      const res = await authenticatedFetch('/api/logs');
       if (res.ok) {
         const data = await res.json();
         setLogs(data);
@@ -209,10 +289,9 @@ export default function Dashboard() {
     }
   };
 
-  // Carrega configurações de afiliado
   const fetchAffiliateSettings = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/user/affiliate`);
+      const res = await authenticatedFetch('/api/user/affiliate');
       if (res.ok) {
         const data = await res.json();
         if (data) {
@@ -238,15 +317,13 @@ export default function Dashboard() {
     }
   };
 
-  // Salva configurações de afiliado
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSavingSettings(true);
     setSettingsSavedMessage(false);
     try {
-      const res = await fetch(`${API_URL}/api/user/affiliate`, {
+      const res = await authenticatedFetch('/api/user/affiliate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           amazonId,
           shopeeId,
@@ -279,34 +356,34 @@ export default function Dashboard() {
     }
   };
 
-  // Efeito inicial para carregar dados
+  // Efeitos de carregamento condicionados ao estado logado
   useEffect(() => {
-    fetchInstances();
-    fetchMappings();
-    fetchLogs();
-    fetchAffiliateSettings();
-  }, []);
+    if (isAuthenticated) {
+      fetchInstances();
+      fetchMappings();
+      fetchLogs();
+      fetchAffiliateSettings();
+    }
+  }, [isAuthenticated]);
 
-  // Polling para QR Code e status de conexões (de 3 em 3 segundos)
+  // Polling condicionado ao estado logado
   useEffect(() => {
+    if (!isAuthenticated) return;
     const interval = setInterval(() => {
       fetchInstances();
-      // Se estiver na aba de logs ou de mapeamento, atualiza também para manter o estado síncrono
       if (activeTab === 'logs') fetchLogs();
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [activeTab]);
+  }, [activeTab, isAuthenticated]);
 
-  // Ação: Criar Instância
   const handleCreateInstance = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newInstanceName) return;
 
     try {
-      const res = await fetch(`${API_URL}/api/instances`, {
+      const res = await authenticatedFetch('/api/instances', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: newInstanceName })
       });
       if (res.ok) {
@@ -319,38 +396,34 @@ export default function Dashboard() {
     }
   };
 
-  // Ação: Iniciar Conexão (Reconectar / QR Code)
   const handleStartInstance = async (id: string) => {
     try {
-      await fetch(`${API_URL}/api/instances/${id}/start`, { method: 'POST' });
+      await authenticatedFetch(`/api/instances/${id}/start`, { method: 'POST' });
       fetchInstances();
     } catch (err) {
       console.error('Error starting instance:', err);
     }
   };
 
-  // Ação: Parar Conexão
   const handleStopInstance = async (id: string) => {
     try {
-      await fetch(`${API_URL}/api/instances/${id}/stop`, { method: 'POST' });
+      await authenticatedFetch(`/api/instances/${id}/stop`, { method: 'POST' });
       fetchInstances();
     } catch (err) {
       console.error('Error stopping instance:', err);
     }
   };
 
-  // Ação: Deletar Instância
   const handleDeleteInstance = async (id: string) => {
     if (!confirm('Deseja excluir permanentemente este dispositivo?')) return;
     try {
-      await fetch(`${API_URL}/api/instances/${id}`, { method: 'DELETE' });
+      await authenticatedFetch(`/api/instances/${id}`, { method: 'DELETE' });
       fetchInstances();
     } catch (err) {
       console.error('Error deleting instance:', err);
     }
   };
 
-  // Ação: Criar Mapeamento
   const handleCreateMapping = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMappingName || !selectedInstanceId || !sourceGroupId || !destGroupIds) {
@@ -359,9 +432,8 @@ export default function Dashboard() {
     }
 
     try {
-      const res = await fetch(`${API_URL}/api/mappings`, {
+      const res = await authenticatedFetch('/api/mappings', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: newMappingName,
           instanceId: selectedInstanceId,
@@ -384,18 +456,16 @@ export default function Dashboard() {
     }
   };
 
-  // Ação: Excluir Mapeamento
   const handleDeleteMapping = async (id: string) => {
     if (!confirm('Excluir regra de mapeamento?')) return;
     try {
-      await fetch(`${API_URL}/api/mappings/${id}`, { method: 'DELETE' });
+      await authenticatedFetch(`/api/mappings/${id}`, { method: 'DELETE' });
       fetchMappings();
     } catch (err) {
       console.error('Error deleting mapping:', err);
     }
   };
 
-  // Ação: Disparo Manual
   const handleManualConvert = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!manualLink || !manualInstanceId || !manualDestGroups) {
@@ -410,9 +480,8 @@ export default function Dashboard() {
     const destGroupIdsArray = manualDestGroups.split(',').map(g => g.trim()).filter(Boolean);
 
     try {
-      const res = await fetch(`${API_URL}/api/manual-dispatch`, {
+      const res = await authenticatedFetch('/api/manual-dispatch', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           instanceId: manualInstanceId,
           destGroupIds: destGroupIdsArray,
@@ -436,6 +505,94 @@ export default function Dashboard() {
       console.error('Error triggering manual dispatch:', err);
     }
   };
+
+    if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-[#090a0f] text-gray-100 flex flex-col justify-center items-center p-4 relative overflow-hidden">
+        {/* Fundo Decorativo Gradiente */}
+        <div className="absolute top-[-20%] left-[-20%] w-[60%] h-[60%] rounded-full bg-emerald-500/10 blur-[120px] pointer-events-none" />
+        <div className="absolute bottom-[-20%] right-[-20%] w-[60%] h-[60%] rounded-full bg-[#222533]/20 blur-[120px] pointer-events-none" />
+
+        <div className="w-full max-w-md">
+          {/* Logo / Header */}
+          <div className="flex flex-col items-center gap-2 mb-8 text-center">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-600 to-emerald-400 flex items-center justify-center shadow-lg shadow-emerald-500/20 text-[#0d0e12] font-black text-xl">
+              M
+            </div>
+            <h1 className="font-extrabold text-2xl tracking-wider bg-gradient-to-r from-gray-100 to-gray-400 bg-clip-text text-transparent font-mono">
+              MandacaruZap
+            </h1>
+            <p className="text-xs text-gray-500 font-medium">WhatsApp Affiliate SaaS Portal</p>
+          </div>
+
+          {/* Card de Login */}
+          <div className="bg-[#14161f] border border-gray-800 rounded-3xl p-8 shadow-2xl relative overflow-hidden backdrop-blur-md">
+            <div className="absolute top-0 left-0 w-full h-[3px] bg-gradient-to-r from-emerald-500 to-emerald-300" />
+            
+            <h2 className="text-xl font-bold mb-1">Acessar sua conta</h2>
+            <p className="text-xs text-gray-400 mb-6">Entre com seu e-mail e senha padrão fornecidos.</p>
+
+            {loginError && (
+              <div className="mb-6 flex items-center gap-3 p-4 bg-red-500/10 border border-red-500/20 rounded-2xl text-red-400 text-xs font-semibold animate-fadeIn">
+                <AlertCircle size={16} className="flex-shrink-0" />
+                <span>{loginError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleLogin} className="space-y-5">
+              <div>
+                <label className="block text-xs text-gray-400 font-semibold mb-2">E-mail</label>
+                <input 
+                  type="email" 
+                  placeholder="admin@mandacaruzap.com"
+                  value={loginEmail}
+                  onChange={(e) => setLoginEmail(e.target.value)}
+                  required
+                  className="w-full bg-[#0d0e12] border border-gray-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all text-gray-200"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs text-gray-400 font-semibold mb-2">Senha</label>
+                <input 
+                  type="password" 
+                  placeholder="••••••••"
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                  required
+                  className="w-full bg-[#0d0e12] border border-gray-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all text-gray-200"
+                />
+              </div>
+
+              <div className="pt-2">
+                <button 
+                  type="submit"
+                  disabled={isLoggingIn}
+                  className="w-full py-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 font-bold text-[#0d0e12] text-sm shadow-lg shadow-emerald-500/15 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {isLoggingIn ? (
+                    <>
+                      <RefreshCw size={16} className="animate-spin" />
+                      <span>Verificando...</span>
+                    </>
+                  ) : (
+                    <span>Acessar Painel</span>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+
+          {/* Dica / Footer */}
+          <div className="mt-8 text-center">
+            <p className="text-[10px] text-gray-600">
+              Caso seja o primeiro acesso, utilize o login padrão fornecido no seed do banco de dados.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#0d0e12] text-gray-100 flex font-sans">
@@ -470,7 +627,6 @@ export default function Dashboard() {
             <button 
               onClick={() => {
                 setActiveTab('manual');
-                // Auto-seleciona a primeira conexão ativa
                 const firstConnected = instances.find(i => i.status === 'CONNECTED');
                 if (firstConnected) setManualInstanceId(firstConnected.id);
               }}
@@ -503,14 +659,23 @@ export default function Dashboard() {
         </div>
 
         <div>
-          <div className="flex items-center gap-3 p-3 rounded-xl bg-[#1b1d29] mb-4">
-            <div className="w-8 h-8 rounded-full bg-emerald-500/20 flex items-center justify-center font-bold text-emerald-400 text-sm">
-              AD
+          <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-[#1b1d29] mb-4">
+            <div className="flex items-center gap-3 overflow-hidden">
+              <div className="w-8 h-8 rounded-full bg-emerald-500/20 flex items-center justify-center font-bold text-emerald-400 text-sm flex-shrink-0 uppercase">
+                {currentUser?.name ? currentUser.name.substring(0, 2) : 'US'}
+              </div>
+              <div className="overflow-hidden">
+                <p className="text-xs font-semibold truncate">{currentUser?.name || 'Usuário SaaS'}</p>
+                <p className="text-[10px] text-gray-500 truncate">{currentUser?.email || 'email@provedor.com'}</p>
+              </div>
             </div>
-            <div className="overflow-hidden">
-              <p className="text-xs font-semibold truncate">Admin Duarte</p>
-              <p className="text-[10px] text-gray-500 truncate">admin@mandacaruzap.com</p>
-            </div>
+            <button 
+              onClick={handleLogout}
+              className="text-gray-400 hover:text-red-400 p-1.5 hover:bg-[#222533] rounded-lg transition-all flex-shrink-0"
+              title="Sair do sistema"
+            >
+              <LogOut size={16} />
+            </button>
           </div>
         </div>
       </aside>
