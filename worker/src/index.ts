@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 import { whatsappManager } from './connection/whatsapp';
 import { scrapeProductData } from './processor/scraper';
 import { convertToAffiliateLink } from './processor/affiliate';
-import { broadcastMessage } from './broadcaster/sender';
+import { broadcastMessage, isTelegramId } from './broadcaster/sender.js';
 import prisma from './lib/prisma';
 import { startQueueProcessor } from './services/queueProcessor.js';
 import { Request, Response, NextFunction } from 'express';
@@ -91,6 +91,84 @@ app.get('/instances/:id/groups', requireWorkerSecret, async (req, res) => {
   }
 });
 
+// Rota de Envio Imediato de Item da Fila
+app.post('/queue/:id/dispatch', requireWorkerSecret, async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    // Busca o item da fila
+    const item = await prisma.messageQueue.findUnique({ where: { id } });
+    if (!item) {
+      return res.status(404).json({ success: false, error: 'Item não encontrado na fila.' });
+    }
+    if (item.status !== 'PENDING') {
+      return res.status(400).json({ success: false, error: 'Apenas itens com status PENDING podem ser enviados imediatamente.' });
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: item.userId } });
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'Usuário não encontrado.' });
+    }
+
+    const sock = whatsappManager.getSocket(item.instanceId);
+    const destGroupsArray = item.destGroups.split(',').map((g: string) => g.trim()).filter(Boolean);
+    const hasWhatsAppDest = destGroupsArray.some((gId: string) => !isTelegramId(gId));
+
+    if (hasWhatsAppDest && !sock) {
+      return res.status(400).json({ success: false, error: `Instância WhatsApp ${item.instanceId} não está conectada.` });
+    }
+
+    console.log(`[Queue Dispatch] Forced dispatch of queue item ${id} for user ${user.email}`);
+
+    // Envia a mensagem imediatamente usando a copy e dados já salvos na fila
+    await broadcastMessage(item.instanceId, sock, destGroupsArray, item.copy, item.imageUrl || undefined, user.telegramBotToken);
+
+    // Atualiza o status para SENT
+    await prisma.messageQueue.update({
+      where: { id },
+      data: { status: 'SENT', sentAt: new Date() }
+    });
+
+    // Grava log de sucesso
+    await prisma.log.create({
+      data: {
+        originalUrl: item.originalUrl,
+        convertedUrl: item.convertedUrl,
+        title: item.title,
+        price: item.price,
+        imageUrl: item.imageUrl,
+        status: 'SENT',
+        sourceGroup: item.sourceGroup,
+        destGroups: item.destGroups,
+        userId: item.userId,
+        instanceId: item.instanceId
+      }
+    });
+
+    res.json({ success: true, message: 'Mensagem enviada com sucesso.' });
+
+  } catch (error) {
+    console.error('[Queue Dispatch] Error dispatching queue item:', error);
+
+    // Marca como FAILED e loga
+    await prisma.messageQueue.update({
+      where: { id },
+      data: { status: 'FAILED', errorMessage: String(error) }
+    }).catch(() => {});
+
+    await prisma.log.create({
+      data: {
+        status: 'FAILED',
+        errorMessage: String(error),
+        userId: '',
+        instanceId: ''
+      }
+    }).catch(() => {});
+
+    res.status(500).json({ success: false, error: 'Erro interno ao despachar item da fila.' });
+  }
+});
+
 // Rota de Disparo Manual
 app.post('/instances/manual-dispatch', requireWorkerSecret, async (req, res) => {
   const { instanceId, destGroupIds, url, userId } = req.body;
@@ -100,7 +178,13 @@ app.post('/instances/manual-dispatch', requireWorkerSecret, async (req, res) => 
   }
 
   const sock = whatsappManager.getSocket(instanceId);
-  if (!sock) {
+  const destGroupsArray = Array.isArray(destGroupIds)
+    ? destGroupIds
+    : String(destGroupIds).split(',').map((g: string) => g.trim()).filter(Boolean);
+
+  const hasWhatsAppDest = destGroupsArray.some((id: string) => !isTelegramId(id));
+
+  if (hasWhatsAppDest && !sock) {
     return res.status(400).json({ success: false, error: `WhatsApp instance ${instanceId} is not connected.` });
   }
 
@@ -125,7 +209,7 @@ app.post('/instances/manual-dispatch', requireWorkerSecret, async (req, res) => 
                  `${emojiCheck} *Acesse aqui:* ${convertedUrl}\n\n` +
                  `⚠️ _Oferta por tempo limitado!_`;
 
-    await broadcastMessage(instanceId, sock, destGroupIds, copy, productData.imageUrl || undefined);
+    await broadcastMessage(instanceId, sock, destGroupsArray, copy, productData.imageUrl || undefined, user.telegramBotToken);
 
     await prisma.log.create({
       data: {

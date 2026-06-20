@@ -36,6 +36,18 @@ model User {
   sendWindowEnd      String             @default("18:00")
   dailyLimit         Int                @default(30)
 
+  // Configurações de Filtro de Preço Mínimo
+  minPriceAmazon       Float?
+  minPriceShopee       Float?
+  minPriceMeli         Float?
+
+  // Configurações de Deduplificação
+  enableDeduplication  Boolean            @default(false)
+  deduplicationHours   Int                @default(24)
+
+  // Configurações de Telegram
+  telegramBotToken     String?
+
   // Relações
   instances      WhatsappInstance[]
   mappings       GroupMapping[]

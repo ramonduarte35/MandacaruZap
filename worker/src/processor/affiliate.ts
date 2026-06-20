@@ -76,8 +76,17 @@ async function extractMeliSocialProduct(socialUrl: string): Promise<string> {
     
     $('a').each((i, el) => {
       const href = $(el).attr('href') || '';
-      if (href.includes('produto.mercadolivre.com.br/MLB-') || href.includes('mercadolivre.com.br/p/MLB-')) {
-        const absoluteHref = href.startsWith('//') ? `https:${href}` : href;
+      let absoluteHref = href;
+      if (href.startsWith('//')) {
+        absoluteHref = `https:${href}`;
+      } else if (href.startsWith('/')) {
+        absoluteHref = `https://www.mercadolivre.com.br${href}`;
+      }
+
+      const isMeliUrl = absoluteHref.includes('mercadolivre.com.br') || absoluteHref.includes('mercadolivre.co') || absoluteHref.includes('meli.la');
+      const hasProductPattern = absoluteHref.includes('/p/MLB') || /\/p\/MLB-?\d+/i.test(absoluteHref) || absoluteHref.includes('produto.mercadolivre.com.br/MLB');
+
+      if (isMeliUrl && hasProductPattern) {
         const parsed = new URL(absoluteHref);
         const searchVariation = parsed.searchParams.get('searchVariation');
         parsed.search = '';

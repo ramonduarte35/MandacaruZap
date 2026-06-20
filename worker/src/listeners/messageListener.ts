@@ -43,6 +43,28 @@ function getMessageText(message: proto.IWebMessageInfo): string {
 }
 
 /**
+ * Converte strings de preço raspadas (ex: "R$ 1.250,90", "R$ 49,99") em números reais de forma robusta.
+ */
+function parsePrice(priceStr: string | null | undefined): number | null {
+  if (!priceStr) return null;
+  const clean = priceStr.replace(/[^\d.,]/g, '');
+  if (!clean) return null;
+
+  if (clean.includes(',') && clean.includes('.')) {
+    return parseFloat(clean.replace(/\./g, '').replace(/,/g, '.'));
+  } else if (clean.includes(',')) {
+    return parseFloat(clean.replace(/,/g, '.'));
+  } else if (clean.includes('.')) {
+    const parts = clean.split('.');
+    if (parts.length === 2 && parts[1].length === 3) {
+      return parseFloat(clean.replace(/\./g, ''));
+    }
+    return parseFloat(clean);
+  }
+  return parseFloat(clean);
+}
+
+/**
  * Manipula mensagens recebidas e faz o roteamento dos links de afiliados
  */
 export async function handleIncomingMessage(
@@ -169,6 +191,75 @@ export async function handleIncomingMessage(
 
         // 2. Extração de Metadados (Scraping)
         const productData = await scrapeProductData(expandedUrl);
+
+        // Preço Mínimo Filter
+        const priceValue = parsePrice(productData.price);
+        if (priceValue !== null) {
+          let minPrice: number | null = null;
+          let label = '';
+          if (isAmazon && mapping.user.minPriceAmazon !== null) {
+            minPrice = mapping.user.minPriceAmazon;
+            label = 'Amazon';
+          } else if (isShopee && mapping.user.minPriceShopee !== null) {
+            minPrice = mapping.user.minPriceShopee;
+            label = 'Shopee';
+          } else if (isMeli && mapping.user.minPriceMeli !== null) {
+            minPrice = mapping.user.minPriceMeli;
+            label = 'Mercado Livre';
+          }
+
+          if (minPrice !== null && priceValue < minPrice) {
+            const skipMsg = `Produto ignorado: preco ${priceValue} e menor que o minimo de ${minPrice} configurado para ${label}.`;
+            console.log(`[Listener] ${skipMsg}`);
+            await prisma.log.create({
+              data: {
+                originalUrl,
+                status: 'FAILED',
+                errorMessage: skipMsg,
+                sourceGroup: fromJid,
+                destGroups: mapping.destGroupIds,
+                userId: mapping.userId,
+                instanceId: instanceId
+              }
+            });
+            continue; // Ignora esta URL
+          }
+        }
+
+        // Deduplication Check
+        if (mapping.user.enableDeduplication && mapping.user.deduplicationHours > 0) {
+          const deduplicationLimit = new Date(Date.now() - mapping.user.deduplicationHours * 60 * 60 * 1000);
+          const duplicate = await prisma.messageQueue.findFirst({
+            where: {
+              userId: mapping.userId,
+              status: { in: ['SENT', 'PENDING'] },
+              OR: [
+                { originalUrl: originalUrl },
+                { title: productData.title }
+              ],
+              createdAt: {
+                gte: deduplicationLimit
+              }
+            }
+          });
+
+          if (duplicate) {
+            const skipMsg = `Produto ignorado por deduplicacao (enviado ou na fila nas ultimas ${mapping.user.deduplicationHours} horas).`;
+            console.log(`[Listener] ${skipMsg}`);
+            await prisma.log.create({
+              data: {
+                originalUrl,
+                status: 'FAILED',
+                errorMessage: skipMsg,
+                sourceGroup: fromJid,
+                destGroups: mapping.destGroupIds,
+                userId: mapping.userId,
+                instanceId: instanceId
+              }
+            });
+            continue; // Ignora esta URL
+          }
+        }
 
         // 3. Substituição dos IDs de Afiliados
         const convertedUrl = await convertToAffiliateLink(

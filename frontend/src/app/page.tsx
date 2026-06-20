@@ -15,7 +15,8 @@ import {
   Check,
   X,
   Sliders,
-  Menu
+  Menu,
+  Clock
 } from 'lucide-react';
 
 const API_URL = 'http://localhost:5050';
@@ -52,6 +53,22 @@ interface Log {
   createdAt: string;
 }
 
+interface QueueItem {
+  id: string;
+  originalUrl: string;
+  convertedUrl: string | null;
+  title: string | null;
+  price: string | null;
+  imageUrl: string | null;
+  copy: string;
+  status: string;
+  errorMessage: string | null;
+  sourceGroup: string | null;
+  destGroups: string;
+  createdAt: string;
+  sentAt: string | null;
+}
+
 export default function Dashboard() {
   // Estados de Autenticação
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -62,7 +79,7 @@ export default function Dashboard() {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [currentUser, setCurrentUser] = useState<{ id: string; email: string; name: string | null } | null>(null);
 
-  const [activeTab, setActiveTab] = useState<'instances' | 'mapping' | 'manual' | 'logs' | 'settings'>('instances');
+  const [activeTab, setActiveTab] = useState<'instances' | 'mapping' | 'manual' | 'queue' | 'logs' | 'settings'>('instances');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   
   // Configurações de Afiliado
@@ -94,6 +111,23 @@ export default function Dashboard() {
   const [sendWindowStart, setSendWindowStart] = useState('08:00');
   const [sendWindowEnd, setSendWindowEnd] = useState('18:00');
   const [dailyLimit, setDailyLimit] = useState(30);
+
+  // Preço Mínimo
+  const [minPriceAmazon, setMinPriceAmazon] = useState<number | null>(null);
+  const [minPriceShopee, setMinPriceShopee] = useState<number | null>(null);
+  const [minPriceMeli, setMinPriceMeli] = useState<number | null>(null);
+
+  // Deduplificação
+  const [enableDeduplication, setEnableDeduplication] = useState(false);
+  const [deduplicationHours, setDeduplicationHours] = useState(24);
+
+  // Telegram
+  const [telegramBotToken, setTelegramBotToken] = useState('');
+
+  // Fila de Envio
+  const [queue, setQueue] = useState<QueueItem[]>([]);
+  const [isFetchingQueue, setIsFetchingQueue] = useState(false);
+  const [sendingQueueItem, setSendingQueueItem] = useState<string | null>(null);
 
   const handleLogout = () => {
     localStorage.removeItem('token');
@@ -292,6 +326,62 @@ export default function Dashboard() {
     }
   };
 
+  const fetchQueue = async () => {
+    setIsFetchingQueue(true);
+    try {
+      const res = await authenticatedFetch('/api/queue');
+      if (res.ok) {
+        const data = await res.json();
+        setQueue(data);
+      }
+    } catch (err) {
+      console.error('Error fetching queue:', err);
+    } finally {
+      setIsFetchingQueue(false);
+    }
+  };
+
+  const handleCancelQueueItem = async (id: string) => {
+    if (!confirm('Deseja realmente cancelar este item da fila?')) return;
+    try {
+      const res = await authenticatedFetch(`/api/queue/${id}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        fetchQueue();
+        fetchLogs();
+      } else {
+        const errData = await res.json();
+        alert(errData.error || 'Erro ao cancelar item.');
+      }
+    } catch (err) {
+      console.error('Error cancelling queue item:', err);
+      alert('Erro de conexão ao cancelar item.');
+    }
+  };
+
+  const handleSendNowQueueItem = async (id: string) => {
+    if (!confirm('Deseja enviar esta mensagem agora, ignorando a janela de horário?')) return;
+    setSendingQueueItem(id);
+    try {
+      const res = await authenticatedFetch(`/api/queue/${id}/dispatch`, {
+        method: 'POST'
+      });
+      if (res.ok) {
+        fetchQueue();
+        fetchLogs();
+      } else {
+        const errData = await res.json();
+        alert(errData.error || 'Erro ao enviar item agora.');
+      }
+    } catch (err) {
+      console.error('Error dispatching queue item:', err);
+      alert('Erro de conexão ao tentar enviar agora.');
+    } finally {
+      setSendingQueueItem(null);
+    }
+  };
+
   const fetchAffiliateSettings = async () => {
     try {
       const res = await authenticatedFetch('/api/user/affiliate');
@@ -314,6 +404,12 @@ export default function Dashboard() {
           setSendWindowStart(data.sendWindowStart || '08:00');
           setSendWindowEnd(data.sendWindowEnd || '18:00');
           setDailyLimit(data.dailyLimit !== undefined ? data.dailyLimit : 30);
+          setMinPriceAmazon(data.minPriceAmazon !== undefined ? data.minPriceAmazon : null);
+          setMinPriceShopee(data.minPriceShopee !== undefined ? data.minPriceShopee : null);
+          setMinPriceMeli(data.minPriceMeli !== undefined ? data.minPriceMeli : null);
+          setEnableDeduplication(data.enableDeduplication === true);
+          setDeduplicationHours(data.deduplicationHours !== undefined ? data.deduplicationHours : 24);
+          setTelegramBotToken(data.telegramBotToken || '');
         }
       }
     } catch (err) {
@@ -344,7 +440,13 @@ export default function Dashboard() {
           mercadolivreOnlyShort,
           sendWindowStart,
           sendWindowEnd,
-          dailyLimit: Number(dailyLimit)
+          dailyLimit: Number(dailyLimit),
+          minPriceAmazon,
+          minPriceShopee,
+          minPriceMeli,
+          enableDeduplication,
+          deduplicationHours: Number(deduplicationHours),
+          telegramBotToken
         })
       });
       if (res.ok) {
@@ -377,6 +479,7 @@ export default function Dashboard() {
     const interval = setInterval(() => {
       fetchInstances();
       if (activeTab === 'logs') fetchLogs();
+      if (activeTab === 'queue') fetchQueue();
     }, 3000);
 
     return () => clearInterval(interval);
@@ -679,6 +782,17 @@ export default function Dashboard() {
             </button>
             <button 
               onClick={() => {
+                setActiveTab('queue');
+                setIsMobileMenuOpen(false);
+                fetchQueue();
+              }}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${activeTab === 'queue' ? 'bg-[#222533] text-emerald-400 shadow-md shadow-black/10' : 'text-gray-400 hover:bg-[#1a1d29] hover:text-gray-200'}`}
+            >
+              <Clock size={18} />
+              Fila de Disparo
+            </button>
+            <button 
+              onClick={() => {
                 setActiveTab('settings');
                 setIsMobileMenuOpen(false);
                 fetchAffiliateSettings();
@@ -747,6 +861,7 @@ export default function Dashboard() {
                 {activeTab === 'instances' && 'Conexões do WhatsApp'}
                 {activeTab === 'mapping' && 'Mapeamento'}
                 {activeTab === 'manual' && 'Gerador & Disparo Manual'}
+                {activeTab === 'queue' && 'Fila de Disparo'}
                 {activeTab === 'logs' && 'Logs e Atividades'}
                 {activeTab === 'settings' && 'Configurações de Afiliado'}
               </h2>
@@ -754,6 +869,7 @@ export default function Dashboard() {
                 {activeTab === 'instances' && 'Gerencie seus múltiplos números de WhatsApp e sessões ativas.'}
                 {activeTab === 'mapping' && 'Configure quais grupos de origem serão monitorados e quais grupos de destino receberão as ofertas.'}
                 {activeTab === 'manual' && 'Cole links de produtos suportados para conversão de afiliados e disparo manual imediato.'}
+                {activeTab === 'queue' && 'Visualize e gerencie a fila de envio de mensagens pendentes.'}
                 {activeTab === 'logs' && 'Histórico completo de links capturados, convertidos e mensagens enviadas.'}
                 {activeTab === 'settings' && 'Configure seus IDs de afiliado da Amazon, Shopee e Mercado Livre para conversão automática.'}
               </p>
@@ -1135,6 +1251,96 @@ export default function Dashboard() {
           </div>
         )}
 
+        {/* TAB 4.5: QUEUE */}
+        {activeTab === 'queue' && (
+          <div className="bg-[#14161f] border border-gray-800 rounded-2xl p-6 shadow-xl animate-fadeIn">
+            <div className="flex justify-between items-center mb-6">
+              <div>
+                <h3 className="font-bold text-lg">Fila de Disparo (Mensagens Pendentes)</h3>
+                <p className="text-xs text-gray-500 mt-1">Acompanhe as mensagens que estão agendadas para disparo de acordo com a janela de horário e limite diário.</p>
+              </div>
+              <button 
+                onClick={fetchQueue}
+                className="flex items-center gap-2 px-3.5 py-2 rounded-xl border border-gray-700 text-xs font-semibold text-gray-300 hover:bg-gray-800 transition-all"
+              >
+                <RefreshCw size={12} className={isFetchingQueue ? 'animate-spin' : ''} /> Atualizar Fila
+              </button>
+            </div>
+
+            {queue.length === 0 ? (
+              <div className="text-center py-12 text-gray-500 text-xs">Nenhuma mensagem na fila.</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm text-gray-300">
+                  <thead className="bg-[#0d0e12] text-xs text-gray-500 uppercase border-b border-gray-800">
+                    <tr>
+                      <th className="px-6 py-4 font-semibold">Adicionado</th>
+                      <th className="px-6 py-4 font-semibold">Produto</th>
+                      <th className="px-6 py-4 font-semibold">Preço</th>
+                      <th className="px-6 py-4 font-semibold">Status</th>
+                      <th className="px-6 py-4 font-semibold">Destinos</th>
+                      <th className="px-6 py-4 font-semibold text-right">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-800">
+                    {queue.map(item => (
+                      <tr key={item.id} className="hover:bg-[#1a1d29]/50 transition-colors">
+                        <td className="px-6 py-4 text-xs font-medium text-gray-500">
+                          {new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </td>
+                        <td className="px-6 py-4 text-xs font-semibold truncate max-w-[200px]" title={item.title || ''}>
+                          {item.title || 'Sem título'}
+                        </td>
+                        <td className="px-6 py-4 text-xs text-emerald-400 font-semibold">{item.price || 'N/A'}</td>
+                        <td className="px-6 py-4">
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold ${
+                            item.status === 'PENDING' ? 'bg-amber-500/10 text-amber-400' :
+                            item.status === 'SENT' ? 'bg-emerald-500/10 text-emerald-400' :
+                            item.status === 'FAILED' ? 'bg-red-500/10 text-red-400' : 'bg-gray-500/10 text-gray-400'
+                          }`}>
+                            {item.status === 'PENDING' ? 'Aguardando' :
+                             item.status === 'SENT' ? 'Enviado' :
+                             item.status === 'FAILED' ? 'Falhou' : 'Expirado'}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-xs text-gray-400 max-w-[200px] truncate" title={item.destGroups}>
+                          {item.destGroups}
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          {item.status === 'PENDING' && (
+                            <div className="flex items-center justify-end gap-1">
+                              <button
+                                onClick={() => handleSendNowQueueItem(item.id)}
+                                disabled={sendingQueueItem === item.id}
+                                className="flex items-center gap-1 text-emerald-400 hover:text-emerald-300 px-2 py-1.5 rounded-lg hover:bg-emerald-500/10 transition-all text-[11px] font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                                title="Enviar agora (ignora janela de horário)"
+                              >
+                                {sendingQueueItem === item.id ? (
+                                  <svg className="animate-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                                ) : (
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                                )}
+                                Enviar
+                              </button>
+                              <button
+                                onClick={() => handleCancelQueueItem(item.id)}
+                                className="text-red-400 hover:text-red-300 p-1.5 rounded-lg hover:bg-red-500/10 transition-all"
+                                title="Cancelar disparo"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* TAB 5: SETTINGS */}
         {activeTab === 'settings' && (
           <div className="max-w-2xl mx-auto">
@@ -1186,32 +1392,66 @@ export default function Dashboard() {
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-xs text-gray-400 font-semibold mb-2 flex items-center justify-between">
-                    <span>Amazon Associate Tag (ID de Associado)</span>
-                    <span className="text-[10px] text-gray-500 font-normal">Ex: seunome-20</span>
-                  </label>
-                  <input 
-                    type="text" 
-                    placeholder="Ex: seunome-20"
-                    value={amazonId}
-                    onChange={(e) => setAmazonId(e.target.value)}
-                    className="w-full bg-[#0d0e12] border border-gray-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-all text-gray-200"
-                  />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs text-gray-400 font-semibold mb-2 flex items-center justify-between">
+                      <span>Amazon Associate Tag (ID de Associado)</span>
+                      <span className="text-[10px] text-gray-500 font-normal">Ex: seunome-20</span>
+                    </label>
+                    <input 
+                      type="text" 
+                      placeholder="Ex: seunome-20"
+                      value={amazonId}
+                      onChange={(e) => setAmazonId(e.target.value)}
+                      className="w-full bg-[#0d0e12] border border-gray-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-all text-gray-200"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-400 font-semibold mb-2 flex items-center justify-between">
+                      <span>Preço Mínimo Amazon (R$)</span>
+                      <span className="text-[10px] text-gray-500 font-normal">Opcional</span>
+                    </label>
+                    <input 
+                      type="number" 
+                      step="0.01"
+                      min="0"
+                      placeholder="Sem preço mínimo"
+                      value={minPriceAmazon !== null && minPriceAmazon !== undefined ? minPriceAmazon : ''}
+                      onChange={(e) => setMinPriceAmazon(e.target.value ? Number(e.target.value) : null)}
+                      className="w-full bg-[#0d0e12] border border-gray-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-all text-gray-200"
+                    />
+                  </div>
                 </div>
 
-                <div>
-                  <label className="block text-xs text-gray-400 font-semibold mb-2 flex items-center justify-between">
-                    <span>Shopee Sub ID / Partner ID</span>
-                    <span className="text-[10px] text-gray-500 font-normal">Ex: promocoesvip</span>
-                  </label>
-                  <input 
-                    type="text" 
-                    placeholder="Ex: promocoesvip"
-                    value={shopeeId}
-                    onChange={(e) => setShopeeId(e.target.value)}
-                    className="w-full bg-[#0d0e12] border border-gray-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-all text-gray-200"
-                  />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs text-gray-400 font-semibold mb-2 flex items-center justify-between">
+                      <span>Shopee Sub ID / Partner ID</span>
+                      <span className="text-[10px] text-gray-500 font-normal">Ex: promocoesvip</span>
+                    </label>
+                    <input 
+                      type="text" 
+                      placeholder="Ex: promocoesvip"
+                      value={shopeeId}
+                      onChange={(e) => setShopeeId(e.target.value)}
+                      className="w-full bg-[#0d0e12] border border-gray-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-all text-gray-200"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-400 font-semibold mb-2 flex items-center justify-between">
+                      <span>Preço Mínimo Shopee (R$)</span>
+                      <span className="text-[10px] text-gray-500 font-normal">Opcional</span>
+                    </label>
+                    <input 
+                      type="number" 
+                      step="0.01"
+                      min="0"
+                      placeholder="Sem preço mínimo"
+                      value={minPriceShopee !== null && minPriceShopee !== undefined ? minPriceShopee : ''}
+                      onChange={(e) => setMinPriceShopee(e.target.value ? Number(e.target.value) : null)}
+                      className="w-full bg-[#0d0e12] border border-gray-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-all text-gray-200"
+                    />
+                  </div>
                 </div>
 
                 <div className="border-t border-gray-800 pt-4 mt-2">
@@ -1339,18 +1579,35 @@ export default function Dashboard() {
                     </div>
                   </div>
 
-                  <div>
-                    <label className="block text-xs text-gray-400 font-semibold mb-2 flex items-center justify-between">
-                      <span>Mercado Livre Custom ID (Fallback / Links Diretos)</span>
-                      <span className="text-[10px] text-gray-500 font-normal">Ex: seunome_aff</span>
-                    </label>
-                    <input 
-                      type="text" 
-                      placeholder="Ex: seunome_aff"
-                      value={mercadolivreId}
-                      onChange={(e) => setMercadolivreId(e.target.value)}
-                      className="w-full bg-[#0d0e12] border border-gray-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-all text-gray-200"
-                    />
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs text-gray-400 font-semibold mb-2 flex items-center justify-between">
+                        <span>Mercado Livre Custom ID (Fallback / Links Diretos)</span>
+                        <span className="text-[10px] text-gray-500 font-normal">Ex: seunome_aff</span>
+                      </label>
+                      <input 
+                        type="text" 
+                        placeholder="Ex: seunome_aff"
+                        value={mercadolivreId}
+                        onChange={(e) => setMercadolivreId(e.target.value)}
+                        className="w-full bg-[#0d0e12] border border-gray-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-all text-gray-200"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-400 font-semibold mb-2 flex items-center justify-between">
+                        <span>Preço Mínimo Mercado Livre (R$)</span>
+                        <span className="text-[10px] text-gray-500 font-normal">Opcional</span>
+                      </label>
+                      <input 
+                        type="number" 
+                        step="0.01"
+                        min="0"
+                        placeholder="Sem preço mínimo"
+                        value={minPriceMeli !== null && minPriceMeli !== undefined ? minPriceMeli : ''}
+                        onChange={(e) => setMinPriceMeli(e.target.value ? Number(e.target.value) : null)}
+                        className="w-full bg-[#0d0e12] border border-gray-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-all text-gray-200"
+                      />
+                    </div>
                   </div>
                 </div>
 
@@ -1402,6 +1659,54 @@ export default function Dashboard() {
                   <p className="text-[9px] text-gray-500 mt-1">
                     As ofertas capturadas serão adicionadas a uma fila e enviadas respeitando o horário permitido e o limite diário de disparos (com intervalo mínimo de 5 minutos entre cada envio para evitar spam).
                   </p>
+                  <div className="border-t border-gray-800/50 pt-4 mt-4 space-y-4">
+                    <h4 className="text-xs font-semibold text-emerald-400 uppercase tracking-wider">Configurações do Telegram</h4>
+                    <div>
+                      <label className="block text-xs text-gray-400 font-semibold mb-2 flex items-center justify-between">
+                        <span>Token do Bot do Telegram</span>
+                        <span className="text-[10px] text-gray-500 font-normal">Ex: 123456789:ABCdef...</span>
+                      </label>
+                      <input 
+                        type="text" 
+                        placeholder="Insira o token do bot gerado no BotFather"
+                        value={telegramBotToken}
+                        onChange={(e) => setTelegramBotToken(e.target.value)}
+                        className="w-full bg-[#0d0e12] border border-gray-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-all text-gray-200"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="border-t border-gray-800/50 pt-4 mt-4 space-y-4">
+                    <h4 className="text-xs font-semibold text-emerald-400 uppercase tracking-wider">Deduplificação de Ofertas</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="flex items-center">
+                        <label className="flex items-center gap-2 cursor-pointer text-xs text-gray-200 select-none">
+                          <input 
+                            type="checkbox" 
+                            checked={enableDeduplication} 
+                            onChange={(e) => setEnableDeduplication(e.target.checked)} 
+                            className="rounded border-gray-800 text-emerald-500 focus:ring-emerald-500 bg-[#14161f] w-4 h-4 cursor-pointer"
+                          />
+                          <span>Ativar deduplificação de produtos</span>
+                        </label>
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-400 font-semibold mb-2 flex items-center justify-between">
+                          <span>Janela de Deduplificação (horas)</span>
+                          <span className="text-[10px] text-gray-500 font-normal">Padrão: 24h</span>
+                        </label>
+                        <input 
+                          type="number" 
+                          min="1"
+                          max="168"
+                          disabled={!enableDeduplication}
+                          value={deduplicationHours}
+                          onChange={(e) => setDeduplicationHours(Number(e.target.value))}
+                          className="w-full bg-[#0d0e12] border border-gray-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-all text-gray-200 disabled:opacity-50"
+                        />
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
                 <div className="pt-4 border-t border-gray-800">
@@ -1537,10 +1842,10 @@ export default function Dashboard() {
 
               <div>
                 <label className="block text-xs text-gray-400 font-semibold mb-1">Grupos de Destino</label>
-                {activeGroups.length > 0 ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5 max-h-36 overflow-y-auto p-2.5 bg-[#0d0e12] border border-gray-800 rounded-xl">
+                {activeGroups.length > 0 && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5 max-h-36 overflow-y-auto p-2.5 bg-[#0d0e12] border border-gray-800 rounded-xl mb-2">
                     {activeGroups.map(group => {
-                      const isChecked = destGroupIds.split(',').includes(group.id);
+                      const isChecked = destGroupIds.split(',').map(g => g.trim()).includes(group.id);
                       return (
                         <label key={group.id} className="flex items-center gap-2.5 p-1.5 hover:bg-[#1a1d29] rounded-lg cursor-pointer transition-all">
                           <input 
@@ -1554,7 +1859,7 @@ export default function Dashboard() {
                                 const idx = current.indexOf(group.id);
                                 if (idx > -1) current.splice(idx, 1);
                               }
-                              setDestGroupIds(current.join(','));
+                              setDestGroupIds(current.join(', '));
                             }}
                             className="rounded border-gray-800 text-emerald-500 focus:ring-emerald-500/20 bg-transparent"
                           />
@@ -1563,16 +1868,18 @@ export default function Dashboard() {
                       );
                     })}
                   </div>
-                ) : (
-                  <input 
-                    type="text" 
-                    placeholder="120363029411@g.us, 120363029422@g.us"
-                    value={destGroupIds}
-                    onChange={(e) => setDestGroupIds(e.target.value)}
-                    required
-                    className="w-full bg-[#0d0e12] border border-gray-800 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-emerald-500 font-mono text-gray-200"
-                  />
                 )}
+                <input 
+                  type="text" 
+                  placeholder="JIDs do WhatsApp ou IDs do Telegram (Ex: 120363@g.us, -10012345, @meucanal)"
+                  value={destGroupIds}
+                  onChange={(e) => setDestGroupIds(e.target.value)}
+                  required
+                  className="w-full bg-[#0d0e12] border border-gray-800 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-emerald-500 font-mono text-gray-200"
+                />
+                <span className="text-[10px] text-gray-500 mt-1 block">
+                  Você pode selecionar grupos do WhatsApp acima (se conectados) e/ou inserir manualmente outros IDs de WhatsApp ou Telegram separados por vírgula.
+                </span>
               </div>
 
               <button 

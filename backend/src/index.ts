@@ -384,7 +384,96 @@ app.post('/api/manual-dispatch', async (req, res) => {
   }
 });
 
-// 12. Obter configurações de afiliado do usuário
+// 12. Obter fila de envio de mensagens do usuário
+app.get('/api/queue', async (req, res) => {
+  const userId = req.userId || '';
+  try {
+    const queue = await prisma.messageQueue.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' }
+    });
+    res.json(queue);
+  } catch (error) {
+    console.error('[Queue] List error:', error);
+    res.status(500).json({ error: 'Erro interno do servidor.' });
+  }
+});
+
+// Cancelar/excluir item da fila de envio
+app.delete('/api/queue/:id', async (req, res) => {
+  const userId = req.userId || '';
+  const { id } = req.params;
+  try {
+    const item = await prisma.messageQueue.findFirst({
+      where: { id, userId }
+    });
+    if (!item) {
+      return res.status(404).json({ error: 'Item não encontrado na fila.' });
+    }
+    if (item.status !== 'PENDING') {
+      return res.status(400).json({ error: 'Apenas itens pendentes podem ser cancelados.' });
+    }
+
+    await prisma.messageQueue.delete({
+      where: { id }
+    });
+
+    // Grava no Log como falha/cancelado para que o usuário veja no histórico
+    await prisma.log.create({
+      data: {
+        originalUrl: item.originalUrl,
+        convertedUrl: item.convertedUrl,
+        title: item.title,
+        price: item.price,
+        imageUrl: item.imageUrl,
+        status: 'FAILED',
+        errorMessage: 'Cancelado pelo usuário na fila de disparo.',
+        sourceGroup: item.sourceGroup,
+        destGroups: item.destGroups,
+        userId: item.userId,
+        instanceId: item.instanceId
+      }
+    });
+
+    res.json({ success: true, message: 'Item cancelado com sucesso.' });
+  } catch (error) {
+    console.error('[Queue] Cancel error:', error);
+    res.status(500).json({ error: 'Erro interno do servidor.' });
+  }
+});
+
+// Enviar item da fila imediatamente (ignorar janela de horário)
+app.post('/api/queue/:id/dispatch', async (req, res) => {
+  const userId = req.userId || '';
+  const { id } = req.params;
+  try {
+    // Verifica se o item pertence ao usuário logado
+    const item = await prisma.messageQueue.findFirst({
+      where: { id, userId }
+    });
+    if (!item) {
+      return res.status(404).json({ error: 'Item não encontrado na fila.' });
+    }
+    if (item.status !== 'PENDING') {
+      return res.status(400).json({ error: 'Apenas itens pendentes podem ser enviados agora.' });
+    }
+
+    // Delega o envio ao worker
+    const workerRes = await workerFetch(`/queue/${id}/dispatch`, { method: 'POST' });
+    const data = await workerRes.json();
+
+    if (!workerRes.ok) {
+      return res.status(workerRes.status).json({ error: data.error || 'Erro no worker ao despachar.' });
+    }
+
+    res.json({ success: true, message: 'Mensagem enviada com sucesso!' });
+  } catch (error) {
+    console.error('[Queue] Dispatch error:', error);
+    res.status(500).json({ error: 'Erro interno do servidor.' });
+  }
+});
+
+// 13. Obter configurações de afiliado do usuário
 // --- Item 7: Cookie ML NÃO é retornado — apenas hasCookie booleano ---
 app.get('/api/user/affiliate', async (req, res) => {
   try {
@@ -406,7 +495,13 @@ app.get('/api/user/affiliate', async (req, res) => {
         mercadolivreOnlyShort: true,
         sendWindowStart: true,
         sendWindowEnd: true,
-        dailyLimit: true
+        dailyLimit: true,
+        minPriceAmazon: true,
+        minPriceShopee: true,
+        minPriceMeli: true,
+        enableDeduplication: true,
+        deduplicationHours: true,
+        telegramBotToken: true
       }
     });
 
@@ -423,7 +518,7 @@ app.get('/api/user/affiliate', async (req, res) => {
   }
 });
 
-// 13. Salvar/Atualizar configurações de afiliado do usuário
+// 14. Salvar/Atualizar configurações de afiliado do usuário
 app.post('/api/user/affiliate', async (req, res) => {
   const {
     amazonId,
@@ -440,12 +535,23 @@ app.post('/api/user/affiliate', async (req, res) => {
     mercadolivreOnlyShort,
     sendWindowStart,
     sendWindowEnd,
-    dailyLimit
+    dailyLimit,
+    minPriceAmazon,
+    minPriceShopee,
+    minPriceMeli,
+    enableDeduplication,
+    deduplicationHours,
+    telegramBotToken
   } = req.body;
 
   // Validação de limite diário
   if (dailyLimit !== undefined && (isNaN(Number(dailyLimit)) || Number(dailyLimit) < 1 || Number(dailyLimit) > 500)) {
     return res.status(400).json({ error: 'Limite diário inválido. Deve ser entre 1 e 500.' });
+  }
+
+  // Validação de deduplificação
+  if (deduplicationHours !== undefined && (isNaN(Number(deduplicationHours)) || Number(deduplicationHours) < 1 || Number(deduplicationHours) > 168)) {
+    return res.status(400).json({ error: 'Janela de deduplificação inválida. Deve ser entre 1 e 168 horas.' });
   }
 
   const userId = req.userId || '';
@@ -468,7 +574,13 @@ app.post('/api/user/affiliate', async (req, res) => {
         mercadolivreOnlyShort: mercadolivreOnlyShort !== undefined ? Boolean(mercadolivreOnlyShort) : undefined,
         sendWindowStart: sendWindowStart !== undefined ? String(sendWindowStart) : undefined,
         sendWindowEnd: sendWindowEnd !== undefined ? String(sendWindowEnd) : undefined,
-        dailyLimit: dailyLimit !== undefined ? Number(dailyLimit) : undefined
+        dailyLimit: dailyLimit !== undefined ? Number(dailyLimit) : undefined,
+        minPriceAmazon: minPriceAmazon !== undefined ? (minPriceAmazon === null || minPriceAmazon === '' ? null : Number(minPriceAmazon)) : undefined,
+        minPriceShopee: minPriceShopee !== undefined ? (minPriceShopee === null || minPriceShopee === '' ? null : Number(minPriceShopee)) : undefined,
+        minPriceMeli: minPriceMeli !== undefined ? (minPriceMeli === null || minPriceMeli === '' ? null : Number(minPriceMeli)) : undefined,
+        enableDeduplication: enableDeduplication !== undefined ? Boolean(enableDeduplication) : undefined,
+        deduplicationHours: deduplicationHours !== undefined ? Number(deduplicationHours) : undefined,
+        telegramBotToken: telegramBotToken !== undefined ? (telegramBotToken === '' ? null : String(telegramBotToken)) : undefined
       },
       select: {
         amazonId: true,
@@ -485,7 +597,13 @@ app.post('/api/user/affiliate', async (req, res) => {
         mercadolivreOnlyShort: true,
         sendWindowStart: true,
         sendWindowEnd: true,
-        dailyLimit: true
+        dailyLimit: true,
+        minPriceAmazon: true,
+        minPriceShopee: true,
+        minPriceMeli: true,
+        enableDeduplication: true,
+        deduplicationHours: true,
+        telegramBotToken: true
       }
     });
     const { mercadolivreCookie: _, ...safeUser } = updatedUser;

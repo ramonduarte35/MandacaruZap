@@ -1,13 +1,17 @@
 import prisma from '../lib/prisma.js';
-import { broadcastMessage } from '../broadcaster/sender.js';
+import { broadcastMessage, isTelegramId } from '../broadcaster/sender.js';
 import { whatsappManager } from '../connection/whatsapp.js';
 
 /**
  * Verifica se a hora atual está dentro da janela configurada
+ * Usa o fuso horário de Brasília (UTC-3) para que a janela do usuário funcione corretamente
  */
 function isInsideWindow(startStr: string, endStr: string): boolean {
-  const now = new Date();
-  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  // Converte hora atual para horário de Brasília (UTC-3)
+  const nowUtc = new Date();
+  const brasiliaOffset = -3 * 60; // UTC-3 em minutos
+  const nowBrasilia = new Date(nowUtc.getTime() + brasiliaOffset * 60 * 1000);
+  const currentMinutes = nowBrasilia.getUTCHours() * 60 + nowBrasilia.getUTCMinutes();
 
   const [startH, startM] = startStr.split(':').map(Number);
   const startMinutes = startH * 60 + startM;
@@ -123,13 +127,19 @@ export function startQueueProcessor(): void {
 
         // E. Obtém a conexão ativa do WhatsApp (socket) correspondente
         const sock = whatsappManager.getSocket(nextMessage.instanceId);
-        if (!sock) {
-          console.warn(`[Queue Processor] Socket not connected for instance ${nextMessage.instanceId} (User: ${user.email}). Message will stay in queue.`);
+        
+        // Separa os destinos em array
+        const destGroupsArray = nextMessage.destGroups.split(',').map((id: string) => id.trim()).filter(Boolean);
+        
+        // Verifica se há pelo menos um destino que seja WhatsApp (não Telegram)
+        const hasWhatsAppDest = destGroupsArray.some(id => !isTelegramId(id));
+
+        if (hasWhatsAppDest && !sock) {
+          console.warn(`[Queue Processor] Socket not connected for instance ${nextMessage.instanceId} (User: ${user.email}). WhatsApp destinations require an active connection. Message will stay in queue.`);
           continue;
         }
 
         // F. Executa o broadcast da mensagem
-        const destGroupsArray = nextMessage.destGroups.split(',').map((id: string) => id.trim()).filter(Boolean);
         console.log(`[Queue Processor] Dispatching queued message ${nextMessage.id} (User: ${user.email}) to groups:`, destGroupsArray);
 
         try {
@@ -138,7 +148,8 @@ export function startQueueProcessor(): void {
             sock,
             destGroupsArray,
             nextMessage.copy,
-            nextMessage.imageUrl || undefined
+            nextMessage.imageUrl || undefined,
+            user.telegramBotToken
           );
 
           // Atualiza a mensagem da fila para SENT
