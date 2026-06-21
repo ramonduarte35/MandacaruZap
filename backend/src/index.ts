@@ -31,7 +31,7 @@ if (!WORKER_SECRET || WORKER_SECRET.length < 20) {
   process.exit(1);
 }
 
-const WORKER_URL = 'http://localhost:5001';
+const WORKER_URL = process.env.WORKER_URL || 'http://localhost:5001';
 
 const app = express();
 const prisma = new PrismaClient();
