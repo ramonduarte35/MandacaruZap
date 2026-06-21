@@ -37,7 +37,7 @@ services:
       - "5050:5050"
     environment:
       - PORT=5050
-      - DATABASE_URL=postgresql://postgres:${DB_PASSWORD}@db:5432/whatsapp_affiliate?schema=public
+      - DATABASE_URL=postgresql://postgres:${DB_PASSWORD_ENCODED}@db:5432/whatsapp_affiliate?schema=public
       - REDIS_URL=redis://redis:6379
       - JWT_SECRET=${JWT_SECRET}
       - WORKER_SECRET=${WORKER_SECRET}
@@ -58,7 +58,7 @@ services:
     container_name: whatsapp_affiliate_worker
     restart: always
     environment:
-      - DATABASE_URL=postgresql://postgres:${DB_PASSWORD}@db:5432/whatsapp_affiliate?schema=public
+      - DATABASE_URL=postgresql://postgres:${DB_PASSWORD_ENCODED}@db:5432/whatsapp_affiliate?schema=public
       - REDIS_URL=redis://redis:6379
       - WORKER_SECRET=${WORKER_SECRET}
       - WORKER_PORT=5001
