@@ -275,7 +275,7 @@ export async function convertToAffiliateLink(
         // Persiste o cookie atualizado no banco
         if (user.id) {
           try {
-            const prisma = (await import('../lib/prisma')).default;
+            const prisma = (await import('../lib/prisma.js')).default;
             await prisma.user.update({
               where: { id: user.id },
               data: { mercadolivreCookie: mergedCookie }

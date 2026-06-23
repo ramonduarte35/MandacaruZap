@@ -1,7 +1,7 @@
 import axios from 'axios';
 import * as cheerio from 'cheerio';
-import { convertToAffiliateLink } from './processor/affiliate';
-import { scrapeProductData } from './processor/scraper';
+import { convertToAffiliateLink } from './processor/affiliate.js';
+import { scrapeProductData } from './processor/scraper.js';
 
 async function testDetail2() {
   const url = 'https://meli.la/1wbKLZK';
