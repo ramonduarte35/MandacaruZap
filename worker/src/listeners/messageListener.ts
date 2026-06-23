@@ -377,16 +377,22 @@ export async function handleIncomingMessage(
  * Formata o texto persuasivo final para envio no WhatsApp
  */
 function buildCopy(
-  product: { title: string; price: string; imageUrl: string },
+  product: { title: string; price: string; imageUrl: string; pixPrice?: string },
   affiliateUrl: string
 ): string {
   const emojiTitle = '📦';
   const emojiOffer = '🔥';
   const emojiCheck = '✅';
+  const emojiPix = '🤑';
+  
+  let priceText = `💰 *Por Apenas:* ${product.price}\n`;
+  if (product.pixPrice) {
+    priceText += `${emojiPix} *Ou no Pix por:* ${product.pixPrice}\n`;
+  }
   
   return `${emojiOffer} *SUPER OFERTA DETECTADA!* ${emojiOffer}\n\n` +
          `${emojiTitle} *Produto:* ${product.title}\n` +
-         `💰 *Por Apenas:* ${product.price}\n\n` +
+         `${priceText}\n` +
          `${emojiCheck} *Garanta o seu aqui:* ${affiliateUrl}\n\n` +
          `⚠️ _Preços sujeitos a alteração a qualquer momento._`;
 }

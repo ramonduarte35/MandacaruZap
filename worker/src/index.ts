@@ -207,9 +207,15 @@ app.post('/instances/manual-dispatch', requireWorkerSecret, async (req, res) => 
     const emojiOffer = '🔥';
     const emojiCheck = '✅';
 
+    const emojiPix = '🤑';
+    let priceText = `💰 *Por Apenas:* ${productData.price}\n`;
+    if (productData.pixPrice) {
+      priceText += `${emojiPix} *Ou no Pix por:* ${productData.pixPrice}\n`;
+    }
+
     const copy = `${emojiOffer} *SUPER OFERTA EXCLUSIVA!* ${emojiOffer}\n\n` +
                  `${emojiTitle} *Produto:* ${productData.title}\n` +
-                 `💰 *Por Apenas:* ${productData.price}\n\n` +
+                 `${priceText}\n` +
                  `${emojiCheck} *Acesse aqui:* ${convertedUrl}\n\n` +
                  `⚠️ _Oferta por tempo limitado!_`;
 

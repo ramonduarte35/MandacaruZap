@@ -5,6 +5,7 @@ interface ProductData {
   title: string;
   price: string;
   imageUrl: string;
+  pixPrice?: string;
 }
 
 /**
@@ -48,6 +49,7 @@ export async function scrapeProductData(url: string, cookie?: string | null): Pr
     let price = $('meta[property="product:price:amount"]').attr('content') || 
                 $('meta[property="og:description"]').attr('content')?.match(/R\$\s*\d+[\d.,]*/i)?.[0] || 
                 '';
+    let pixPrice: string | undefined;
 
     // Se for Amazon, tenta seletores específicos adicionais se o OG falhar ou vier genérico
     if (cleanUrl.includes('amazon.com.br') || cleanUrl.includes('amzn.to')) {
@@ -88,6 +90,18 @@ export async function scrapeProductData(url: string, cookie?: string | null): Pr
       if (!title || title.toLowerCase().includes('perfil social') || title.toLowerCase().includes('social')) {
         title = $('.ui-pdp-title').first().text().trim() || title;
       }
+
+      // Extrai o preço via PIX se disponível
+      $('.ui-pdp-price__second-line').each((i, el) => {
+        const text = $(el).text().toLowerCase();
+        if (text.includes('pix')) {
+          const fraction = $(el).find('.andes-money-amount__fraction').first().text();
+          const cents = $(el).find('.andes-money-amount__cents').first().text();
+          if (fraction) {
+            pixPrice = cents ? `R$ ${fraction.trim()},${cents.trim()}` : `R$ ${fraction.trim()}`;
+          }
+        }
+      });
     }
 
     // Se for Shopee
@@ -109,7 +123,8 @@ export async function scrapeProductData(url: string, cookie?: string | null): Pr
     return {
       title,
       price,
-      imageUrl
+      imageUrl,
+      pixPrice
     };
   } catch (error) {
     console.error(`[Scraper] Error scraping URL ${url}:`, error);
