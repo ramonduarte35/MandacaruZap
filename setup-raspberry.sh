@@ -46,6 +46,12 @@ sudo -u postgres psql -c "CREATE DATABASE whatsapp_affiliate OWNER postgres;"
 
 # 7. Configurar variáveis de ambiente do projeto (.env)
 echo "Configurando arquivos de ambiente .env..."
+# Se o .env já existir mas tiver as senhas de exemplo (placeholders), removemos para forçar a recriação correta
+if [ -f .env ] && grep -q "sua_senha_forte_aqui" .env; then
+  echo "Detectado arquivo .env antigo com chaves de exemplo. Removendo para recriar com as credenciais locais corretas..."
+  rm -f .env
+fi
+
 if [ ! -f .env ]; then
   cat << 'EOF' > .env
 # Banco de Dados
