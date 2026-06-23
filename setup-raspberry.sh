@@ -76,13 +76,12 @@ npm install --prefix frontend
 
 # 9. Executar migrações do Prisma e gerar client
 echo "Preparando banco de dados com Prisma..."
-npx --prefix backend prisma migrate deploy
-npx --prefix backend prisma generate
-npx --prefix worker prisma generate
+(cd backend && npx prisma migrate deploy && npx prisma generate)
+(cd worker && npx prisma generate)
 
 # Executar seed do banco de dados com dados iniciais
 echo "Populando banco de dados (seeding)..."
-npx --prefix backend ts-node src/seed.ts || echo "Aviso: Seed já executado ou falhou."
+(cd backend && npx ts-node src/seed.ts) || echo "Aviso: Seed já executado ou falhou."
 
 # 10. Compilar o projeto (Build)
 echo "Compilando backend..."
