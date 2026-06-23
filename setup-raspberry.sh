@@ -59,9 +59,13 @@ else
   echo "Aviso: Não foi possível localizar o arquivo pg_hba.conf para habilitar trust. Prosseguindo com autenticação convencional."
 fi
 
-# Cria o banco whatsapp_affiliate se não existir
-sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname = 'whatsapp_affiliate'" 2>/dev/null | grep -q 1 || \
-sudo -u postgres psql -c "CREATE DATABASE whatsapp_affiliate OWNER postgres;" 2>/dev/null || echo "Banco de dados já existente ou criado."
+# Recria o banco de dados whatsapp_affiliate para evitar conflitos de migrações anteriores
+echo "Limpando e recriando o banco de dados..."
+sudo -u postgres psql -c "REVOKE CONNECT ON DATABASE whatsapp_affiliate FROM public;" 2>/dev/null || true
+sudo -u postgres psql -c "SELECT pg_terminate_backend(pg_stat_activity.pid) FROM pg_stat_activity WHERE pg_stat_activity.datname = 'whatsapp_affiliate' AND pid <> pg_backend_pid();" 2>/dev/null || true
+sudo -u postgres psql -c "DROP DATABASE IF EXISTS whatsapp_affiliate;" 2>/dev/null || true
+sudo -u postgres psql -c "CREATE DATABASE whatsapp_affiliate OWNER postgres;"
+
 
 # 7. Configurar variáveis de ambiente do projeto (.env)
 echo "Configurando arquivos de ambiente .env..."
