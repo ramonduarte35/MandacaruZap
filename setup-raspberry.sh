@@ -38,26 +38,45 @@ sudo systemctl start redis-server
 
 # 6. Configurar banco de dados Postgres
 echo "Configurando banco de dados PostgreSQL..."
-# Define a senha do usuário postgres
-sudo -u postgres psql -c "ALTER USER postgres PASSWORD 'Mand@c@ruZap#2024!Pg';" || echo "Aviso: Falha ao definir senha do postgres (pode já estar definida)."
+# Define a senha do usuário postgres para uma senha simples sem caracteres especiais (evita falhas de parsing)
+sudo -u postgres psql -c "ALTER USER postgres PASSWORD 'mandacaruzap2024';" || echo "Aviso: Falha ao definir senha do postgres."
+
+# Detecta a localização do arquivo pg_hba.conf e configura conexões locais como confiáveis (trust)
+HBA_FILE=$(sudo -u postgres psql -t -P format=unaligned -c "show hba_file;" 2>/dev/null || echo "")
+if [ -f "$HBA_FILE" ]; then
+  echo "Configurando conexões locais como confiáveis em $HBA_FILE..."
+  # Backup do arquivo original
+  sudo cp "$HBA_FILE" "${HBA_FILE}.bak"
+  # Substitui o método de autenticação por trust para localhost IPv4, IPv6 e Unix sockets
+  sudo sed -i 's/127.0.0.1\/32            scram-sha-256/127.0.0.1\/32            trust/g' "$HBA_FILE"
+  sudo sed -i 's/127.0.0.1\/32            md5/127.0.0.1\/32            trust/g' "$HBA_FILE"
+  sudo sed -i 's/::1\/128                 scram-sha-256/::1\/128                 trust/g' "$HBA_FILE"
+  sudo sed -i 's/::1\/128                 md5/::1\/128                 trust/g' "$HBA_FILE"
+  sudo sed -i 's/local   all             all                                     peer/local   all             all                                     trust/g' "$HBA_FILE"
+  # Recarrega o serviço do Postgres para aplicar
+  sudo systemctl reload postgresql
+else
+  echo "Aviso: Não foi possível localizar o arquivo pg_hba.conf para habilitar trust. Prosseguindo com autenticação convencional."
+fi
+
 # Cria o banco whatsapp_affiliate se não existir
-sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname = 'whatsapp_affiliate'" | grep -q 1 || \
-sudo -u postgres psql -c "CREATE DATABASE whatsapp_affiliate OWNER postgres;"
+sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname = 'whatsapp_affiliate'" 2>/dev/null | grep -q 1 || \
+sudo -u postgres psql -c "CREATE DATABASE whatsapp_affiliate OWNER postgres;" 2>/dev/null || echo "Banco de dados já existente ou criado."
 
 # 7. Configurar variáveis de ambiente do projeto (.env)
 echo "Configurando arquivos de ambiente .env..."
-# Se o .env já existir mas tiver as senhas de exemplo (placeholders), removemos para forçar a recriação correta
-if [ -f .env ] && grep -q "sua_senha_forte_aqui" .env; then
-  echo "Detectado arquivo .env antigo com chaves de exemplo. Removendo para recriar com as credenciais locais corretas..."
+# Se o .env já existir mas tiver as senhas antigas ou de exemplo (placeholders), removemos para forçar a recriação correta
+if [ -f .env ] && (grep -q "sua_senha_forte_aqui" .env || grep -q "Mand@c@ruZap#2024" .env); then
+  echo "Detectado arquivo .env desatualizado ou com chaves de exemplo. Removendo para recriar com as credenciais corretas..."
   rm -f .env
 fi
 
 if [ ! -f .env ]; then
   cat << 'EOF' > .env
 # Banco de Dados
-DB_PASSWORD="Mand@c@ruZap#2024!Pg"
-DB_PASSWORD_ENCODED="Mand%40c%40ruZap%232024%21Pg"
-DATABASE_URL="postgresql://postgres:Mand%40c%40ruZap%232024%21Pg@localhost:5432/whatsapp_affiliate?schema=public"
+DB_PASSWORD="mandacaruzap2024"
+DB_PASSWORD_ENCODED="mandacaruzap2024"
+DATABASE_URL="postgresql://postgres:mandacaruzap2024@localhost:5432/whatsapp_affiliate?schema=public"
 
 # Redis
 REDIS_URL="redis://localhost:6379"
@@ -71,7 +90,7 @@ FRONTEND_URL="http://localhost:3000"
 # Configurações do Frontend
 NEXT_PUBLIC_API_URL="http://localhost:5050"
 EOF
-  echo "Arquivo .env criado com as credenciais padrão do banco local."
+  echo "Arquivo .env criado com as credenciais padrão simplificadas do banco local."
 fi
 
 # Copia e sincroniza o .env principal para os subprojetos
