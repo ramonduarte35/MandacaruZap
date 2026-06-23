@@ -1,0 +1,11 @@
+{
+  "name": "whatsapp-affiliate-root",
+  "version": "1.0.0",
+  "description": "Root orchestrator for WhatsApp Affiliate automation services",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "install:all": "./node-env/bin/npm install --prefix backend && ./node-env/bin/npm install --prefix worker && ./node-env/bin/npm install --prefix frontend",
+    "dev": "./node-env/bin/node run.js"
+  }
+}
