@@ -47,22 +47,30 @@ sudo -u postgres psql -c "CREATE DATABASE whatsapp_affiliate OWNER postgres;"
 # 7. Configurar variáveis de ambiente do projeto (.env)
 echo "Configurando arquivos de ambiente .env..."
 if [ ! -f .env ]; then
-  if [ -f .env.example ]; then
-    cp .env.example .env
-    echo "Arquivo .env criado a partir do .env.example."
-  else
-    echo "Aviso: .env.example não encontrado para criar o .env principal."
-  fi
+  cat << 'EOF' > .env
+# Banco de Dados
+DB_PASSWORD="Mand@c@ruZap#2024!Pg"
+DB_PASSWORD_ENCODED="Mand%40c%40ruZap%232024%21Pg"
+DATABASE_URL="postgresql://postgres:Mand%40c%40ruZap%232024%21Pg@localhost:5432/whatsapp_affiliate?schema=public"
+
+# Redis
+REDIS_URL="redis://localhost:6379"
+
+# Configurações da API Backend
+PORT=5050
+JWT_SECRET="J@r3B!q8zXmP2sLwVnK#9dRtYu6fHcAe"
+WORKER_SECRET="Wk7@mN3xQp5vRtL2bYs!eAhGcJ8fDzKn"
+FRONTEND_URL="http://localhost:3000"
+
+# Configurações do Frontend
+NEXT_PUBLIC_API_URL="http://localhost:5050"
+EOF
+  echo "Arquivo .env criado com as credenciais padrão do banco local."
 fi
 
-# Garante que os subprojetos tenham seus arquivos .env corretos
-if [ ! -f backend/.env ]; then
-  cp .env backend/.env 2>/dev/null || true
-fi
-
-if [ ! -f worker/.env ]; then
-  cp .env worker/.env 2>/dev/null || true
-fi
+# Copia e sincroniza o .env principal para os subprojetos
+cp .env backend/.env
+cp .env worker/.env
 
 if [ ! -f frontend/.env.local ]; then
   echo "NEXT_PUBLIC_API_URL=http://localhost:5050" > frontend/.env.local
