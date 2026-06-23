@@ -32,3 +32,6 @@ node-env/
 *.sln
 *.sw?
 .DS_Store
+
+# Build output
+dist/

@@ -1,11 +1,11 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import { whatsappManager } from './connection/whatsapp';
-import { scrapeProductData } from './processor/scraper';
-import { convertToAffiliateLink } from './processor/affiliate';
+import { whatsappManager } from './connection/whatsapp.js';
+import { scrapeProductData } from './processor/scraper.js';
+import { convertToAffiliateLink } from './processor/affiliate.js';
 import { broadcastMessage, isTelegramId } from './broadcaster/sender.js';
-import prisma from './lib/prisma';
+import prisma from './lib/prisma.js';
 import { startQueueProcessor } from './services/queueProcessor.js';
 import { Request, Response, NextFunction } from 'express';
 
@@ -49,7 +49,7 @@ app.get('/health', (req, res) => {
 app.post('/instances/:id/start', requireWorkerSecret, async (req, res) => {
   const { id } = req.params;
   try {
-    whatsappManager.startInstance(id).catch(err => {
+    whatsappManager.startInstance(id).catch((err: any) => {
       console.error(`Error in background start for instance ${id}:`, err);
     });
     res.json({ success: true, message: `Instance ${id} starting process initiated.` });
@@ -80,7 +80,7 @@ app.get('/instances/:id/groups', requireWorkerSecret, async (req, res) => {
   }
   try {
     const groups = await sock.groupFetchAllParticipating();
-    const groupList = Object.entries(groups).map(([jid, metadata]) => ({
+    const groupList = Object.entries(groups).map(([jid, metadata]: [string, any]) => ({
       id: jid,
       name: metadata.subject
     }));
@@ -95,9 +95,10 @@ app.get('/instances/:id/groups', requireWorkerSecret, async (req, res) => {
 app.post('/queue/:id/dispatch', requireWorkerSecret, async (req, res) => {
   const { id } = req.params;
 
+  let item: any = null;
   try {
     // Busca o item da fila
-    const item = await prisma.messageQueue.findUnique({ where: { id } });
+    item = await prisma.messageQueue.findUnique({ where: { id } });
     if (!item) {
       return res.status(404).json({ success: false, error: 'Item não encontrado na fila.' });
     }
@@ -156,14 +157,17 @@ app.post('/queue/:id/dispatch', requireWorkerSecret, async (req, res) => {
       data: { status: 'FAILED', errorMessage: String(error) }
     }).catch(() => {});
 
-    await prisma.log.create({
-      data: {
-        status: 'FAILED',
-        errorMessage: String(error),
-        userId: '',
-        instanceId: ''
-      }
-    }).catch(() => {});
+    if (item) {
+      await prisma.log.create({
+        data: {
+          originalUrl: item.originalUrl,
+          status: 'FAILED',
+          errorMessage: String(error),
+          userId: item.userId,
+          instanceId: item.instanceId
+        }
+      }).catch(() => {});
+    }
 
     res.status(500).json({ success: false, error: 'Erro interno ao despachar item da fila.' });
   }
@@ -196,7 +200,7 @@ app.post('/instances/manual-dispatch', requireWorkerSecret, async (req, res) => 
 
     console.log(`[Manual Dispatch] Processing manual dispatch for user ${user.email}`);
 
-    const productData = await scrapeProductData(url);
+    const productData = await scrapeProductData(url, user.mercadolivreCookie);
     const convertedUrl = await convertToAffiliateLink(url, user);
 
     const emojiTitle = '📦';

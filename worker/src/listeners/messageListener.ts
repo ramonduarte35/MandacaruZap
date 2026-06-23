@@ -1,8 +1,8 @@
 import { proto, WASocket } from '@whiskeysockets/baileys';
-import prisma from '../lib/prisma';
-import { scrapeProductData } from '../processor/scraper';
-import { convertToAffiliateLink, expandUrl } from '../processor/affiliate';
-import { broadcastMessage } from '../broadcaster/sender';
+import prisma from '../lib/prisma.js';
+import { scrapeProductData } from '../processor/scraper.js';
+import { convertToAffiliateLink, expandUrl } from '../processor/affiliate.js';
+import { broadcastMessage } from '../broadcaster/sender.js';
 
 // Cache de controle de envio de alertas de expiração de cookies (userId -> timestamp)
 const lastAlertMap = new Map<string, number>();
@@ -190,7 +190,7 @@ export async function handleIncomingMessage(
         }
 
         // 2. Extração de Metadados (Scraping)
-        const productData = await scrapeProductData(expandedUrl);
+        const productData = await scrapeProductData(expandedUrl, isMeli ? mapping.user.mercadolivreCookie : undefined);
 
         // Preço Mínimo Filter
         const priceValue = parsePrice(productData.price);

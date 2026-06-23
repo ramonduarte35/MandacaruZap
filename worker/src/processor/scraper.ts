@@ -10,15 +10,22 @@ interface ProductData {
 /**
  * Faz a raspagem de metadados de links da Amazon, Shopee ou Mercado Livre.
  */
-export async function scrapeProductData(url: string): Promise<ProductData> {
+export async function scrapeProductData(url: string, cookie?: string | null): Promise<ProductData> {
   const cleanUrl = url.trim();
 
   // Cabeçalhos otimizados: se passarmos o User-Agent do WhatsApp, as plataformas costumam renderizar as tags og:* no HTML estático sem barreiras de JS.
-  const headers = {
-    'User-Agent': 'WhatsApp/2.24.4.76 A',
+  // Porém, para Mercado Livre com cookie, um User-Agent de navegador padrão evita o bloqueio de "tráfego suspeito".
+  const headers: Record<string, string> = {
+    'User-Agent': cookie && (cleanUrl.includes('mercadolivre') || cleanUrl.includes('meli.la'))
+                  ? 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+                  : 'WhatsApp/2.24.4.76 A',
     'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8'
   };
+
+  if (cookie) {
+    headers['Cookie'] = cookie;
+  }
 
   try {
     const response = await axios.get(cleanUrl, {
@@ -56,12 +63,22 @@ export async function scrapeProductData(url: string): Promise<ProductData> {
 
     // Se for Mercado Livre
     if (cleanUrl.includes('mercadolivre.com.br') || cleanUrl.includes('mercadolivre.co')) {
-      if (!price) {
-        const fraction = $('.ui-pdp-price__part .andes-money-amount__fraction').first().text() ||
+      // O og:title do ML costuma vir com o preço real no final (ex: "Produto XYZ - R$ 36,99")
+      if (title) {
+        const titleMatch = title.match(/(.*?)\s*-\s*(R\$\s*[\d.,]+)\s*$/i);
+        if (titleMatch) {
+          title = titleMatch[1].trim();
+          price = titleMatch[2].trim(); // Sobrescreve o preço com o valor real do título
+        }
+      }
+
+      if (!price || price === 'Consulte no link') {
+        const fraction = $('.ui-pdp-price__second-line .andes-money-amount__fraction').first().text() ||
+                         $('.ui-pdp-price__part:not(.ui-pdp-price__part--strike-through) .andes-money-amount__fraction').first().text() ||
                          $('.andes-money-amount__fraction').first().text() ||
-                         $('.price-tag-fraction').first().text() ||
                          '';
-        const cents = $('.ui-pdp-price__part .andes-money-amount__cents').first().text() ||
+        const cents = $('.ui-pdp-price__second-line .andes-money-amount__cents').first().text() ||
+                      $('.ui-pdp-price__part:not(.ui-pdp-price__part--strike-through) .andes-money-amount__cents').first().text() ||
                       $('.andes-money-amount__cents').first().text() ||
                       '';
         if (fraction) {

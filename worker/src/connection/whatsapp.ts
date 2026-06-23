@@ -11,8 +11,8 @@ import pino from 'pino';
 import path from 'path';
 import fs from 'fs';
 import QRCode from 'qrcode';
-import prisma from '../lib/prisma';
-import { handleIncomingMessage } from '../listeners/messageListener';
+import prisma from '../lib/prisma.js';
+import { handleIncomingMessage } from '../listeners/messageListener.js';
 
 const logger = pino({ level: 'error' });
 
@@ -77,7 +77,7 @@ class WhatsAppManager {
       console.log(`[Manager] Connecting instance ${instanceId} using WA version ${version.join('.')}, isLatest: ${isLatest}`);
 
       const sock = makeWASocket({
-        version,
+        version: version as [number, number, number],
         auth: state,
         printQRInTerminal: false,
         logger,
@@ -168,6 +168,7 @@ class WhatsAppManager {
         if (m.type === 'notify') {
           for (const message of m.messages) {
             const remoteJid = message.key.remoteJid;
+            if (!remoteJid) continue;
             const fromMe = message.key.fromMe;
             
             console.log(`[Worker] Received message: JID=${remoteJid}, fromMe=${fromMe}, id=${message.key.id}`);
@@ -188,7 +189,7 @@ class WhatsAppManager {
               console.log(`[Worker] Processing message ${message.key.id} sent by the bot owner (fromMe: true) in source group ${remoteJid}.`);
             }
             
-            handleIncomingMessage(instanceId, sock, message).catch(err => {
+            handleIncomingMessage(instanceId, sock, message).catch((err: any) => {
               console.error('[Manager] Error processing incoming message:', err);
             });
           }

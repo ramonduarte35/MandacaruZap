@@ -460,7 +460,7 @@ app.post('/api/queue/:id/dispatch', async (req, res) => {
 
     // Delega o envio ao worker
     const workerRes = await workerFetch(`/queue/${id}/dispatch`, { method: 'POST' });
-    const data = await workerRes.json();
+    const data = (await workerRes.json()) as any;
 
     if (!workerRes.ok) {
       return res.status(workerRes.status).json({ error: data.error || 'Erro no worker ao despachar.' });
