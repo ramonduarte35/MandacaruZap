@@ -111,9 +111,11 @@ npm install --prefix backend
 npm install --prefix worker
 npm install --prefix frontend
 
-# 9. Executar migrações do Prisma e gerar client
-echo "Preparando banco de dados com Prisma..."
-(cd backend && npx prisma migrate deploy && npx prisma generate)
+# 9. Sincronizar o banco de dados com o esquema do Prisma e gerar client
+echo "Preparando banco de dados com Prisma (db push)..."
+# Remove a pasta de migrações locais no Raspberry para evitar conflitos de histórico
+rm -rf backend/prisma/migrations
+(cd backend && npx prisma db push --accept-data-loss && npx prisma generate)
 (cd worker && npx prisma generate)
 
 # Executar seed do banco de dados com dados iniciais
