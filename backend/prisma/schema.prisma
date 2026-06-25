@@ -49,6 +49,9 @@ model User {
   // Configurações de Telegram
   telegramBotToken     String?
 
+  // Controle de Menções
+  mentionEveryone      Boolean            @default(true)
+
   // Relações
   instances      WhatsappInstance[]
   mappings       GroupMapping[]

@@ -350,6 +350,88 @@ app.get('/api/logs', async (req, res) => {
   }
 });
 
+// 10b. Obter estatísticas do Dashboard (Visão Geral)
+app.get('/api/dashboard/stats', async (req, res) => {
+  const userId = req.userId || '';
+  try {
+    const totalCaptured = await prisma.log.count({
+      where: { userId }
+    });
+
+    const queueStats = await prisma.messageQueue.groupBy({
+      by: ['status'],
+      where: { userId },
+      _count: {
+        id: true,
+      },
+    });
+
+    let totalSent = 0;
+    let totalPending = 0;
+    let totalFailed = 0;
+
+    queueStats.forEach((stat) => {
+      if (stat.status === 'SENT') totalSent = stat._count.id;
+      if (stat.status === 'PENDING') totalPending = stat._count.id;
+      if (stat.status === 'FAILED') totalFailed = stat._count.id;
+    });
+
+    const activeInstances = await prisma.whatsappInstance.count({
+      where: { userId, status: 'CONNECTED' }
+    });
+
+    // Opcional: Estatísticas das últimas 24h
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    const capturedLast24h = await prisma.log.count({
+      where: { userId, createdAt: { gte: yesterday } }
+    });
+
+    const capturedMeli = await prisma.log.count({
+      where: { userId, OR: [{ originalUrl: { contains: 'mercadolivre' } }, { originalUrl: { contains: 'mlb' } }] }
+    });
+    const capturedShopee = await prisma.log.count({
+      where: { userId, OR: [{ originalUrl: { contains: 'shopee' } }, { originalUrl: { contains: 'shope.ee' } }] }
+    });
+    const capturedAmazon = await prisma.log.count({
+      where: { userId, OR: [{ originalUrl: { contains: 'amazon' } }, { originalUrl: { contains: 'amzn.to' } }] }
+    });
+
+    const sentMeli = await prisma.log.count({
+      where: { userId, status: 'SENT', OR: [{ originalUrl: { contains: 'mercadolivre' } }, { originalUrl: { contains: 'mlb' } }] }
+    });
+    const sentShopee = await prisma.log.count({
+      where: { userId, status: 'SENT', OR: [{ originalUrl: { contains: 'shopee' } }, { originalUrl: { contains: 'shope.ee' } }] }
+    });
+    const sentAmazon = await prisma.log.count({
+      where: { userId, status: 'SENT', OR: [{ originalUrl: { contains: 'amazon' } }, { originalUrl: { contains: 'amzn.to' } }] }
+    });
+
+    res.json({
+      totalCaptured,
+      capturedLast24h,
+      totalSent,
+      totalPending,
+      totalFailed,
+      activeInstances,
+      capturedByPlatform: {
+        mercadolivre: capturedMeli,
+        shopee: capturedShopee,
+        amazon: capturedAmazon
+      },
+      sentByPlatform: {
+        mercadolivre: sentMeli,
+        shopee: sentShopee,
+        amazon: sentAmazon
+      }
+    });
+  } catch (error) {
+    console.error('[Dashboard] Stats error:', error);
+    res.status(500).json({ error: 'Erro interno do servidor.' });
+  }
+});
+
 // 11. Executar disparo manual imediato
 app.post('/api/manual-dispatch', async (req, res) => {
   const { instanceId, destGroupIds, url } = req.body;
@@ -501,7 +583,8 @@ app.get('/api/user/affiliate', async (req, res) => {
         minPriceMeli: true,
         enableDeduplication: true,
         deduplicationHours: true,
-        telegramBotToken: true
+        telegramBotToken: true,
+        mentionEveryone: true
       }
     });
 
@@ -541,7 +624,8 @@ app.post('/api/user/affiliate', async (req, res) => {
     minPriceMeli,
     enableDeduplication,
     deduplicationHours,
-    telegramBotToken
+    telegramBotToken,
+    mentionEveryone
   } = req.body;
 
   // Validação de limite diário
@@ -580,7 +664,8 @@ app.post('/api/user/affiliate', async (req, res) => {
         minPriceMeli: minPriceMeli !== undefined ? (minPriceMeli === null || minPriceMeli === '' ? null : Number(minPriceMeli)) : undefined,
         enableDeduplication: enableDeduplication !== undefined ? Boolean(enableDeduplication) : undefined,
         deduplicationHours: deduplicationHours !== undefined ? Number(deduplicationHours) : undefined,
-        telegramBotToken: telegramBotToken !== undefined ? (telegramBotToken === '' ? null : String(telegramBotToken)) : undefined
+        telegramBotToken: telegramBotToken !== undefined ? (telegramBotToken === '' ? null : String(telegramBotToken)) : undefined,
+        mentionEveryone: mentionEveryone !== undefined ? Boolean(mentionEveryone) : undefined
       },
       select: {
         amazonId: true,
@@ -603,7 +688,8 @@ app.post('/api/user/affiliate', async (req, res) => {
         minPriceMeli: true,
         enableDeduplication: true,
         deduplicationHours: true,
-        telegramBotToken: true
+        telegramBotToken: true,
+        mentionEveryone: true
       }
     });
     const { mercadolivreCookie: _, ...safeUser } = updatedUser;

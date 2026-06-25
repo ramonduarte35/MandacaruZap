@@ -122,7 +122,7 @@ app.post('/queue/:id/dispatch', requireWorkerSecret, async (req, res) => {
     console.log(`[Queue Dispatch] Forced dispatch of queue item ${id} for user ${user.email}`);
 
     // Envia a mensagem imediatamente usando a copy e dados já salvos na fila
-    await broadcastMessage(item.instanceId, sock, destGroupsArray, item.copy, item.imageUrl || undefined, user.telegramBotToken);
+    await broadcastMessage(item.instanceId, sock, destGroupsArray, item.copy, item.imageUrl || undefined, user.telegramBotToken, user.mentionEveryone);
 
     // Atualiza o status para SENT
     await prisma.messageQueue.update({
@@ -219,7 +219,7 @@ app.post('/instances/manual-dispatch', requireWorkerSecret, async (req, res) => 
                  `${emojiCheck} *Acesse aqui:* ${convertedUrl}\n\n` +
                  `⚠️ _Oferta por tempo limitado!_`;
 
-    await broadcastMessage(instanceId, sock, destGroupsArray, copy, productData.imageUrl || undefined, user.telegramBotToken);
+    await broadcastMessage(instanceId, sock, destGroupsArray, copy, productData.imageUrl || undefined, user.telegramBotToken, user.mentionEveryone);
 
     await prisma.log.create({
       data: {

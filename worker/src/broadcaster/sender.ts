@@ -16,7 +16,8 @@ export async function broadcastMessage(
   destGroupIds: string[],
   messageText: string,
   imageUrl?: string,
-  telegramBotToken?: string | null
+  telegramBotToken?: string | null,
+  mentionEveryone: boolean = true
 ): Promise<void> {
   for (const jid of destGroupIds) {
     const cleanJid = jid.trim();
@@ -66,12 +67,19 @@ export async function broadcastMessage(
 
         console.log(`[Broadcaster] Preparing broadcast to WhatsApp group ${cleanJid}...`);
 
-        // 1. Obtém metadados do grupo para coletar todos os participantes
-        const groupMetadata = await sock.groupMetadata(cleanJid);
-        const participants = groupMetadata.participants.map(p => p.id);
+        // 1. Obtém metadados do grupo para coletar todos os participantes se for mencionar todos
+        let participants: string[] = [];
+        let textWithMention = messageText;
 
-        // Adiciona uma chamada visível "@todos" e associa as menções aos IDs reais dos participantes
-        const textWithMention = `📢 @everyone\n\n${messageText}`;
+        if (mentionEveryone) {
+          try {
+            const groupMetadata = await sock.groupMetadata(cleanJid);
+            participants = groupMetadata.participants.map(p => p.id);
+            textWithMention = `📢 @everyone\n\n${messageText}`;
+          } catch (metaErr) {
+            console.warn(`[Broadcaster] Failed to fetch group metadata for ${cleanJid}. Cannot mention everyone.`, metaErr);
+          }
+        }
 
         // 2. Se houver imagem, envia como mensagem de mídia com a copy na legenda
         if (imageUrl) {
@@ -79,7 +87,7 @@ export async function broadcastMessage(
             await sock.sendMessage(cleanJid, {
               image: { url: imageUrl },
               caption: textWithMention,
-              mentions: participants
+              ...(mentionEveryone && participants.length > 0 ? { mentions: participants } : {})
             });
             console.log(`[Broadcaster] Message with image sent successfully to WhatsApp ${cleanJid}`);
             continue;
@@ -91,7 +99,7 @@ export async function broadcastMessage(
         // 3. Fallback ou envio textual (caso não exista imagem ou ocorra erro)
         await sock.sendMessage(cleanJid, {
           text: textWithMention,
-          mentions: participants
+          ...(mentionEveryone && participants.length > 0 ? { mentions: participants } : {})
         });
         
         console.log(`[Broadcaster] Text message sent successfully to WhatsApp ${cleanJid}`);

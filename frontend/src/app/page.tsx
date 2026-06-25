@@ -79,8 +79,29 @@ export default function Dashboard() {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [currentUser, setCurrentUser] = useState<{ id: string; email: string; name: string | null } | null>(null);
 
-  const [activeTab, setActiveTab] = useState<'instances' | 'mapping' | 'manual' | 'queue' | 'logs' | 'settings'>('instances');
+  const [activeTab, setActiveTab] = useState<'overview' | 'instances' | 'mapping' | 'manual' | 'queue' | 'logs' | 'settings'>('overview');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  // Estatísticas do Dashboard
+  const [dashboardStats, setDashboardStats] = useState<{
+    totalCaptured: number;
+    capturedLast24h: number;
+    totalSent: number;
+    totalPending: number;
+    totalFailed: number;
+    activeInstances: number;
+    capturedByPlatform?: {
+      mercadolivre: number;
+      shopee: number;
+      amazon: number;
+    };
+    sentByPlatform?: {
+      mercadolivre: number;
+      shopee: number;
+      amazon: number;
+    };
+  } | null>(null);
+  const [isFetchingStats, setIsFetchingStats] = useState(false);
   
   // Configurações de Afiliado
   const [amazonId, setAmazonId] = useState('');
@@ -123,6 +144,9 @@ export default function Dashboard() {
 
   // Telegram
   const [telegramBotToken, setTelegramBotToken] = useState('');
+
+  // Menções
+  const [mentionEveryone, setMentionEveryone] = useState(true);
 
   // Fila de Envio
   const [queue, setQueue] = useState<QueueItem[]>([]);
@@ -302,6 +326,21 @@ export default function Dashboard() {
     }
   };
 
+  const fetchDashboardStats = async () => {
+    setIsFetchingStats(true);
+    try {
+      const res = await authenticatedFetch('/api/dashboard/stats');
+      if (res.ok) {
+        const data = await res.json();
+        setDashboardStats(data);
+      }
+    } catch (err) {
+      console.error('Error fetching dashboard stats:', err);
+    } finally {
+      setIsFetchingStats(false);
+    }
+  };
+
   const fetchMappings = async () => {
     try {
       const res = await authenticatedFetch('/api/mappings');
@@ -410,6 +449,7 @@ export default function Dashboard() {
           setEnableDeduplication(data.enableDeduplication === true);
           setDeduplicationHours(data.deduplicationHours !== undefined ? data.deduplicationHours : 24);
           setTelegramBotToken(data.telegramBotToken || '');
+          setMentionEveryone(data.mentionEveryone !== undefined ? data.mentionEveryone : true);
         }
       }
     } catch (err) {
@@ -446,7 +486,8 @@ export default function Dashboard() {
           minPriceMeli,
           enableDeduplication,
           deduplicationHours: Number(deduplicationHours),
-          telegramBotToken
+          telegramBotToken,
+          mentionEveryone
         })
       });
       if (res.ok) {
@@ -466,6 +507,7 @@ export default function Dashboard() {
   // Efeitos de carregamento condicionados ao estado logado
   useEffect(() => {
     if (isAuthenticated) {
+      fetchDashboardStats();
       fetchInstances();
       fetchMappings();
       fetchLogs();
@@ -478,6 +520,7 @@ export default function Dashboard() {
     if (!isAuthenticated) return;
     const interval = setInterval(() => {
       fetchInstances();
+      if (activeTab === 'overview') fetchDashboardStats();
       if (activeTab === 'logs') fetchLogs();
       if (activeTab === 'queue') fetchQueue();
     }, 3000);
@@ -739,6 +782,17 @@ export default function Dashboard() {
           <nav className="space-y-1">
             <button 
               onClick={() => {
+                setActiveTab('overview');
+                setIsMobileMenuOpen(false);
+                fetchDashboardStats();
+              }}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${activeTab === 'overview' ? 'bg-[#222533] text-emerald-400 shadow-md shadow-black/10' : 'text-gray-400 hover:bg-[#1a1d29] hover:text-gray-200'}`}
+            >
+              <div className="w-5 flex justify-center"><CheckCircle size={18} /></div>
+              Visão Geral
+            </button>
+            <button 
+              onClick={() => {
                 setActiveTab('instances');
                 setIsMobileMenuOpen(false);
               }}
@@ -858,6 +912,7 @@ export default function Dashboard() {
           <header className="flex justify-between items-center mb-8">
             <div>
               <h2 className="text-xl md:text-2xl font-bold font-mono">
+                {activeTab === 'overview' && 'Visão Geral'}
                 {activeTab === 'instances' && 'Conexões do WhatsApp'}
                 {activeTab === 'mapping' && 'Mapeamento'}
                 {activeTab === 'manual' && 'Gerador & Disparo Manual'}
@@ -866,6 +921,7 @@ export default function Dashboard() {
                 {activeTab === 'settings' && 'Configurações de Afiliado'}
               </h2>
               <p className="text-xs text-gray-400 mt-1">
+                {activeTab === 'overview' && 'Métricas e estatísticas em tempo real da sua operação.'}
                 {activeTab === 'instances' && 'Gerencie seus múltiplos números de WhatsApp e sessões ativas.'}
                 {activeTab === 'mapping' && 'Configure quais grupos de origem serão monitorados e quais grupos de destino receberão as ofertas.'}
                 {activeTab === 'manual' && 'Cole links de produtos suportados para conversão de afiliados e disparo manual imediato.'}
@@ -875,6 +931,120 @@ export default function Dashboard() {
               </p>
             </div>
           </header>
+
+        {/* TAB 0: OVERVIEW */}
+        {activeTab === 'overview' && (
+          <div className="space-y-6 animate-fadeIn">
+            {isFetchingStats && !dashboardStats ? (
+              <div className="flex items-center justify-center p-12">
+                <RefreshCw size={24} className="animate-spin text-emerald-500" />
+              </div>
+            ) : dashboardStats ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+                <div className="bg-[#1a1d29] border border-gray-800 rounded-2xl p-5 flex flex-col gap-2 relative overflow-hidden transition-all hover:border-emerald-500/30">
+                  <div className="absolute top-0 right-0 p-4 opacity-5 text-gray-300">
+                    <Layers size={64} />
+                  </div>
+                  <span className="text-gray-400 text-xs font-semibold uppercase tracking-wider">Capturadas</span>
+                  <div className="text-3xl font-black text-gray-100">{dashboardStats.totalCaptured}</div>
+                  <div className="text-xs text-emerald-400 font-medium">+{dashboardStats.capturedLast24h} nas últimas 24h</div>
+                </div>
+
+                <div className="bg-[#1a1d29] border border-gray-800 rounded-2xl p-5 flex flex-col gap-2 relative overflow-hidden transition-all hover:border-emerald-500/30">
+                  <div className="absolute top-0 right-0 p-4 opacity-5 text-emerald-500">
+                    <Send size={64} />
+                  </div>
+                  <span className="text-gray-400 text-xs font-semibold uppercase tracking-wider">Enviadas</span>
+                  <div className="text-3xl font-black text-emerald-400">{dashboardStats.totalSent}</div>
+                  <div className="text-xs text-gray-500 font-medium">Com sucesso</div>
+                </div>
+
+                <div className="bg-[#1a1d29] border border-gray-800 rounded-2xl p-5 flex flex-col gap-2 relative overflow-hidden transition-all hover:border-amber-500/30">
+                  <div className="absolute top-0 right-0 p-4 opacity-5 text-amber-500">
+                    <Clock size={64} />
+                  </div>
+                  <span className="text-gray-400 text-xs font-semibold uppercase tracking-wider">Na Fila</span>
+                  <div className="text-3xl font-black text-amber-400">{dashboardStats.totalPending}</div>
+                  <div className="text-xs text-gray-500 font-medium">Aguardando envio</div>
+                </div>
+
+                <div className="bg-[#1a1d29] border border-gray-800 rounded-2xl p-5 flex flex-col gap-2 relative overflow-hidden transition-all hover:border-red-500/30">
+                  <div className="absolute top-0 right-0 p-4 opacity-5 text-red-500">
+                    <AlertCircle size={64} />
+                  </div>
+                  <span className="text-gray-400 text-xs font-semibold uppercase tracking-wider">Falhas</span>
+                  <div className="text-3xl font-black text-red-400">{dashboardStats.totalFailed}</div>
+                  <div className="text-xs text-gray-500 font-medium">Erros de envio</div>
+                </div>
+
+                <div className="bg-[#1a1d29] border border-gray-800 rounded-2xl p-5 flex flex-col gap-2 relative overflow-hidden transition-all hover:border-blue-500/30">
+                  <div className="absolute top-0 right-0 p-4 opacity-5 text-blue-500">
+                    <QrCode size={64} />
+                  </div>
+                  <span className="text-gray-400 text-xs font-semibold uppercase tracking-wider">Conexões Ativas</span>
+                  <div className="text-3xl font-black text-blue-400">{dashboardStats.activeInstances}</div>
+                  <div className="text-xs text-gray-500 font-medium">Sessões conectadas</div>
+                </div>
+              </div>
+            ) : (
+              <div className="text-gray-500 text-center p-8 bg-[#1a1d29] rounded-2xl border border-gray-800">
+                Não foi possível carregar as estatísticas.
+              </div>
+            )}
+            
+            {dashboardStats && (
+              <div className="bg-gradient-to-r from-[#14161f] to-[#1a1d29] border border-gray-800 rounded-2xl p-6 shadow-xl relative overflow-hidden">
+                <div className="absolute top-0 left-0 w-[3px] h-full bg-emerald-500" />
+                <h3 className="font-bold text-lg mb-2 text-gray-100 flex items-center gap-2">
+                  Bem-vindo(a) ao Dashboard!
+                </h3>
+                <p className="text-sm text-gray-400 max-w-3xl">
+                  Aqui você tem um resumo rápido da sua operação de afiliação via WhatsApp. 
+                  Sua taxa de aproveitamento atual é de aproximadamente <strong className="text-emerald-400 font-bold bg-emerald-500/10 px-1.5 py-0.5 rounded">
+                    {dashboardStats.totalCaptured > 0 ? ((dashboardStats.totalSent / dashboardStats.totalCaptured) * 100).toFixed(1) : '0'}%
+                  </strong>. 
+                  Isso representa a porcentagem de produtos lidos que foram disparados com sucesso para os seus grupos.
+                </p>
+              </div>
+            )}
+
+            {dashboardStats?.capturedByPlatform && dashboardStats?.sentByPlatform && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 animate-fadeIn">
+                <div className="bg-[#1a1d29] border border-gray-800 rounded-2xl p-5 flex flex-col gap-3 relative overflow-hidden transition-all hover:border-emerald-500/30">
+                  <h4 className="text-gray-400 text-xs font-semibold uppercase tracking-wider mb-2">Quantidade Capturada por Marketplace</h4>
+                  <div className="flex justify-between items-center text-sm font-medium p-2 bg-[#14161f] rounded-xl border border-gray-800/50">
+                    <span className="text-gray-300">Mercado Livre</span>
+                    <span className="text-emerald-400 font-bold bg-emerald-500/10 px-2.5 py-0.5 rounded">{dashboardStats.capturedByPlatform.mercadolivre}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-sm font-medium p-2 bg-[#14161f] rounded-xl border border-gray-800/50">
+                    <span className="text-gray-300">Shopee</span>
+                    <span className="text-amber-400 font-bold bg-amber-500/10 px-2.5 py-0.5 rounded">{dashboardStats.capturedByPlatform.shopee}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-sm font-medium p-2 bg-[#14161f] rounded-xl border border-gray-800/50">
+                    <span className="text-gray-300">Amazon</span>
+                    <span className="text-blue-400 font-bold bg-blue-500/10 px-2.5 py-0.5 rounded">{dashboardStats.capturedByPlatform.amazon}</span>
+                  </div>
+                </div>
+
+                <div className="bg-[#1a1d29] border border-gray-800 rounded-2xl p-5 flex flex-col gap-3 relative overflow-hidden transition-all hover:border-emerald-500/30">
+                  <h4 className="text-gray-400 text-xs font-semibold uppercase tracking-wider mb-2">Quantidade Enviada por Plataforma</h4>
+                  <div className="flex justify-between items-center text-sm font-medium p-2 bg-[#14161f] rounded-xl border border-gray-800/50">
+                    <span className="text-gray-300">Mercado Livre</span>
+                    <span className="text-emerald-400 font-bold bg-emerald-500/10 px-2.5 py-0.5 rounded">{dashboardStats.sentByPlatform.mercadolivre}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-sm font-medium p-2 bg-[#14161f] rounded-xl border border-gray-800/50">
+                    <span className="text-gray-300">Shopee</span>
+                    <span className="text-amber-400 font-bold bg-amber-500/10 px-2.5 py-0.5 rounded">{dashboardStats.sentByPlatform.shopee}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-sm font-medium p-2 bg-[#14161f] rounded-xl border border-gray-800/50">
+                    <span className="text-gray-300">Amazon</span>
+                    <span className="text-blue-400 font-bold bg-blue-500/10 px-2.5 py-0.5 rounded">{dashboardStats.sentByPlatform.amazon}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* TAB 1: INSTANCES */}
         {activeTab === 'instances' && (
@@ -1679,6 +1849,21 @@ export default function Dashboard() {
                         onChange={(e) => setTelegramBotToken(e.target.value)}
                         className="w-full bg-[#0d0e12] border border-gray-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-all text-gray-200"
                       />
+                    </div>
+                  </div>
+
+                  <div className="border-t border-gray-800/50 pt-4 mt-4 space-y-4">
+                    <h4 className="text-xs font-semibold text-emerald-400 uppercase tracking-wider">Configurações de Mensagens</h4>
+                    <div className="flex items-center">
+                      <label className="flex items-center gap-2 cursor-pointer text-xs text-gray-200 select-none">
+                        <input 
+                          type="checkbox" 
+                          checked={mentionEveryone} 
+                          onChange={(e) => setMentionEveryone(e.target.checked)} 
+                          className="rounded border-gray-800 text-emerald-500 focus:ring-emerald-500 bg-[#14161f] w-4 h-4 cursor-pointer"
+                        />
+                        <span>Mencionar todos (@everyone) ao enviar mensagens no WhatsApp</span>
+                      </label>
                     </div>
                   </div>
 

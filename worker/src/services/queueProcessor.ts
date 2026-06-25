@@ -149,7 +149,8 @@ export function startQueueProcessor(): void {
             destGroupsArray,
             nextMessage.copy,
             nextMessage.imageUrl || undefined,
-            user.telegramBotToken
+            user.telegramBotToken,
+            user.mentionEveryone
           );
 
           // Atualiza a mensagem da fila para SENT
