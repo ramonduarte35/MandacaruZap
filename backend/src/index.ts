@@ -432,6 +432,37 @@ app.get('/api/dashboard/stats', async (req, res) => {
   }
 });
 
+// 10c. Buscar e Enfileirar Ofertas do Dia (Mercado Livre)
+app.post('/api/offers/fetch-and-queue', async (req, res) => {
+  const { instanceId, destGroupIds, delaySeconds } = req.body;
+
+  if (!instanceId || !destGroupIds) {
+    return res.status(400).json({ error: 'Parâmetros ausentes. Necessário: instanceId, destGroupIds' });
+  }
+
+  const userId = req.userId || '';
+  try {
+    const instance = await prisma.whatsappInstance.findFirst({ where: { id: instanceId, userId } });
+    if (!instance) {
+      return res.status(400).json({ error: 'Instância do WhatsApp não encontrada ou não pertence ao seu usuário.' });
+    }
+
+    const response = await workerFetch('/offers/fetch-and-queue', {
+      method: 'POST',
+      body: JSON.stringify({ instanceId, destGroupIds, userId, delaySeconds })
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      return res.status(response.status).json(data);
+    }
+    res.json(data);
+  } catch (error) {
+    console.error('[Offers] Error:', error);
+    res.status(500).json({ error: 'Erro interno do servidor.' });
+  }
+});
+
 // 11. Executar disparo manual imediato
 app.post('/api/manual-dispatch', async (req, res) => {
   const { instanceId, destGroupIds, url } = req.body;

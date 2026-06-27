@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import { whatsappManager } from './connection/whatsapp.js';
 import { scrapeProductData } from './processor/scraper.js';
 import { convertToAffiliateLink } from './processor/affiliate.js';
+import { fetchAndQueueOffers } from './processor/offers.js';
 import { broadcastMessage, isTelegramId } from './broadcaster/sender.js';
 import prisma from './lib/prisma.js';
 import { startQueueProcessor } from './services/queueProcessor.js';
@@ -254,6 +255,40 @@ app.post('/instances/manual-dispatch', requireWorkerSecret, async (req, res) => 
     }).catch(() => {});
 
     res.status(500).json({ success: false, error: 'Erro interno ao processar o disparo.' });
+  }
+});
+
+// Rota de Ofertas do Dia (Buscar e Enfileirar)
+app.post('/offers/fetch-and-queue', requireWorkerSecret, async (req, res) => {
+  const { instanceId, destGroupIds, userId, delaySeconds } = req.body;
+
+  if (!instanceId || !destGroupIds || !userId) {
+    return res.status(400).json({ success: false, error: 'Missing parameters. Required: instanceId, destGroupIds, userId' });
+  }
+
+  const destGroupsArray = Array.isArray(destGroupIds)
+    ? destGroupIds
+    : String(destGroupIds).split(',').map((g: string) => g.trim()).filter(Boolean);
+
+  if (destGroupsArray.length === 0) {
+    return res.status(400).json({ success: false, error: 'É necessário pelo menos um grupo de destino.' });
+  }
+
+  try {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found.' });
+    }
+
+    console.log(`[Offers] Solicitada busca de ofertas para o usuário ${user.email} (Delay: ${delaySeconds}s)`);
+
+    const count = await fetchAndQueueOffers(instanceId, destGroupsArray, userId, delaySeconds || 3);
+
+    res.json({ success: true, count, message: `Encontradas ${count} ofertas. Elas estão sendo processadas e enfileiradas em segundo plano.` });
+
+  } catch (error) {
+    console.error('[Offers] Erro ao buscar ofertas:', error);
+    res.status(500).json({ success: false, error: 'Erro interno ao buscar ofertas.' });
   }
 });
 

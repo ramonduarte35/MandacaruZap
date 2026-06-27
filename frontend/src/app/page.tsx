@@ -16,7 +16,8 @@ import {
   X,
   Sliders,
   Menu,
-  Clock
+  Clock,
+  Tag
 } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5050';
@@ -79,7 +80,7 @@ export default function Dashboard() {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [currentUser, setCurrentUser] = useState<{ id: string; email: string; name: string | null } | null>(null);
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'instances' | 'mapping' | 'manual' | 'queue' | 'logs' | 'settings'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'instances' | 'mapping' | 'manual' | 'queue' | 'logs' | 'settings' | 'offers'>('overview');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   // Estatísticas do Dashboard
@@ -152,6 +153,14 @@ export default function Dashboard() {
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [isFetchingQueue, setIsFetchingQueue] = useState(false);
   const [sendingQueueItem, setSendingQueueItem] = useState<string | null>(null);
+
+  // Ofertas do Dia
+  const [offersInstanceId, setOffersInstanceId] = useState('');
+  const [offersDestGroups, setOffersDestGroups] = useState('');
+  const [offersDelay, setOffersDelay] = useState(3);
+  const [isFetchingOffers, setIsFetchingOffers] = useState(false);
+  const [offersResult, setOffersResult] = useState<{ count: number, message: string } | null>(null);
+  const [offersError, setOffersError] = useState<string | null>(null);
 
   const handleLogout = () => {
     localStorage.removeItem('token');
@@ -313,6 +322,10 @@ export default function Dashboard() {
   useEffect(() => {
     if (isAuthenticated) fetchGroups(manualInstanceId);
   }, [manualInstanceId, isAuthenticated]);
+
+  useEffect(() => {
+    if (isAuthenticated) fetchGroups(offersInstanceId);
+  }, [offersInstanceId, isAuthenticated]);
 
   const fetchInstances = async () => {
     try {
@@ -657,6 +670,44 @@ export default function Dashboard() {
     }
   };
 
+  const handleFetchOffers = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!offersInstanceId || !offersDestGroups) {
+      alert('Por favor, preencha todos os parâmetros.');
+      return;
+    }
+
+    setIsFetchingOffers(true);
+    setOffersResult(null);
+    setOffersError(null);
+
+    const destGroupIdsArray = offersDestGroups.split(',').map(g => g.trim()).filter(Boolean);
+
+    try {
+      const res = await authenticatedFetch('/api/offers/fetch-and-queue', {
+        method: 'POST',
+        body: JSON.stringify({
+          instanceId: offersInstanceId,
+          destGroupIds: destGroupIdsArray,
+          delaySeconds: offersDelay
+        })
+      });
+
+      const data = await res.json();
+      setIsFetchingOffers(false);
+
+      if (res.ok && data.success) {
+        setOffersResult({ count: data.count, message: data.message });
+      } else {
+        setOffersError(data.error || 'Ocorreu um erro ao buscar ofertas.');
+      }
+    } catch (err) {
+      setIsFetchingOffers(false);
+      setOffersError('Erro na conexão com o servidor.');
+      console.error('Error fetching offers:', err);
+    }
+  };
+
     if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-[#090a0f] text-gray-100 flex flex-col justify-center items-center p-4 relative overflow-hidden">
@@ -847,6 +898,18 @@ export default function Dashboard() {
             </button>
             <button 
               onClick={() => {
+                setActiveTab('offers');
+                setIsMobileMenuOpen(false);
+                const firstConnected = instances.find(i => i.status === 'CONNECTED');
+                if (firstConnected) setOffersInstanceId(firstConnected.id);
+              }}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${activeTab === 'offers' ? 'bg-[#222533] text-emerald-400 shadow-md shadow-black/10' : 'text-gray-400 hover:bg-[#1a1d29] hover:text-gray-200'}`}
+            >
+              <Tag size={18} />
+              Ofertas do Dia
+            </button>
+            <button 
+              onClick={() => {
                 setActiveTab('settings');
                 setIsMobileMenuOpen(false);
                 fetchAffiliateSettings();
@@ -916,6 +979,7 @@ export default function Dashboard() {
                 {activeTab === 'instances' && 'Conexões do WhatsApp'}
                 {activeTab === 'mapping' && 'Mapeamento'}
                 {activeTab === 'manual' && 'Gerador & Disparo Manual'}
+                {activeTab === 'offers' && 'Ofertas do Dia (Mercado Livre)'}
                 {activeTab === 'queue' && 'Fila de Disparo'}
                 {activeTab === 'logs' && 'Logs e Atividades'}
                 {activeTab === 'settings' && 'Configurações de Afiliado'}
@@ -925,6 +989,7 @@ export default function Dashboard() {
                 {activeTab === 'instances' && 'Gerencie seus múltiplos números de WhatsApp e sessões ativas.'}
                 {activeTab === 'mapping' && 'Configure quais grupos de origem serão monitorados e quais grupos de destino receberão as ofertas.'}
                 {activeTab === 'manual' && 'Cole links de produtos suportados para conversão de afiliados e disparo manual imediato.'}
+                {activeTab === 'offers' && 'Busque as ofertas diárias do Mercado Livre e adicione-as automaticamente à fila de envio.'}
                 {activeTab === 'queue' && 'Visualize e gerencie a fila de envio de mensagens pendentes.'}
                 {activeTab === 'logs' && 'Histórico completo de links capturados, convertidos e mensagens enviadas.'}
                 {activeTab === 'settings' && 'Configure seus IDs de afiliado da Amazon, Shopee e Mercado Livre para conversão automática.'}
@@ -1424,6 +1489,139 @@ export default function Dashboard() {
                 </table>
               </div>
             )}
+          </div>
+        )}
+
+        {/* TAB 4: OFERTAS DO DIA */}
+        {activeTab === 'offers' && (
+          <div className="max-w-3xl mx-auto space-y-6">
+            <div className="bg-[#1a1d29] border border-emerald-500/20 p-6 rounded-2xl flex items-start gap-4 shadow-lg shadow-black/20">
+              <div className="p-3 bg-emerald-500/10 rounded-xl text-emerald-400">
+                <Tag size={24} />
+              </div>
+              <div>
+                <h3 className="text-gray-200 font-bold mb-1">Sobre as Ofertas do Dia</h3>
+                <p className="text-sm text-gray-400 leading-relaxed">
+                  Esta ferramenta acessa a página de ofertas do Mercado Livre, coleta os produtos disponíveis e, em segundo plano, raspa os detalhes de cada um (foto, título, preço), gera os links com a sua tag de afiliado configurada e insere as mensagens na fila de envio automaticamente. 
+                  <br /><br />
+                  <span className="text-emerald-400/80">O intervalo (delay) ajuda a evitar bloqueios do Mercado Livre ao acessar muitos produtos de uma vez.</span>
+                </p>
+              </div>
+            </div>
+
+            <form onSubmit={handleFetchOffers} className="bg-[#14161f] border border-gray-800 rounded-2xl p-6 shadow-xl space-y-6">
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-400 mb-2">Instância do WhatsApp (Para disparos nos grupos)</label>
+                  <select 
+                    value={offersInstanceId} 
+                    onChange={(e) => setOffersInstanceId(e.target.value)}
+                    required
+                    className="w-full bg-[#0d0e12] border border-gray-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 text-gray-200"
+                  >
+                    <option value="">Selecione uma instância...</option>
+                    {instances.map(inst => (
+                      <option key={inst.id} value={inst.id}>{inst.name} ({inst.status})</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-400 mb-2">Intervalo entre raspagem de cada oferta (Segundos)</label>
+                  <select 
+                    value={offersDelay} 
+                    onChange={(e) => setOffersDelay(Number(e.target.value))}
+                    className="w-full bg-[#0d0e12] border border-gray-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 text-gray-200"
+                  >
+                    <option value={3}>3 Segundos (Rápido)</option>
+                    <option value={5}>5 Segundos (Recomendado)</option>
+                    <option value={10}>10 Segundos</option>
+                    <option value={20}>20 Segundos</option>
+                    <option value={30}>30 Segundos</option>
+                    <option value={45}>45 Segundos (Muito Seguro)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <div className="flex justify-between items-center mb-2">
+                    <label className="block text-xs font-semibold text-gray-400">Grupos de Destino</label>
+                    {isLoadingGroups && <span className="text-xs text-emerald-500 animate-pulse">Carregando grupos...</span>}
+                  </div>
+                  {activeGroups.length > 0 ? (
+                    <div className="space-y-2 max-h-60 overflow-y-auto pr-2 bg-[#0d0e12] border border-gray-800 rounded-xl p-3">
+                      {activeGroups.map(group => {
+                        const isSelected = offersDestGroups.split(',').map(s => s.trim()).includes(group.id);
+                        return (
+                          <label key={group.id} className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors border ${isSelected ? 'bg-emerald-500/10 border-emerald-500/50' : 'bg-[#14161f] border-transparent hover:bg-[#1a1d29]'}`}>
+                            <input 
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={(e) => {
+                                let current = offersDestGroups.split(',').map(s => s.trim()).filter(Boolean);
+                                if (e.target.checked) {
+                                  current.push(group.id);
+                                } else {
+                                  current = current.filter(id => id !== group.id);
+                                }
+                                setOffersDestGroups(current.join(','));
+                              }}
+                              className="w-4 h-4 rounded border-gray-600 bg-[#0d0e12] text-emerald-500 focus:ring-emerald-500 focus:ring-offset-[#14161f]"
+                            />
+                            <div className="flex flex-col">
+                              <span className={`text-sm font-medium ${isSelected ? 'text-emerald-400' : 'text-gray-300'}`}>{group.name}</span>
+                              <span className="text-[10px] text-gray-500 font-mono">{group.id}</span>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="bg-[#0d0e12] border border-gray-800 rounded-xl px-4 py-4 text-sm text-gray-500 flex items-center justify-center">
+                      {offersInstanceId ? 'Nenhum grupo encontrado ou carregando...' : 'Selecione uma instância para carregar os grupos.'}
+                    </div>
+                  )}
+                  <p className="text-[10px] text-gray-500 mt-2">
+                    IDs selecionados internamente: {offersDestGroups || 'Nenhum'}
+                  </p>
+                </div>
+              </div>
+
+              {offersError && (
+                <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm">
+                  {offersError}
+                </div>
+              )}
+
+              {offersResult && (
+                <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-emerald-400 text-sm flex items-start gap-3">
+                  <CheckCircle size={18} className="mt-0.5" />
+                  <div>
+                    <span className="font-bold">{offersResult.count} ofertas encontradas!</span><br />
+                    {offersResult.message}
+                  </div>
+                </div>
+              )}
+
+              <div className="pt-2">
+                <button 
+                  type="submit"
+                  disabled={isFetchingOffers}
+                  className="w-full py-4 rounded-xl bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-400 hover:to-green-400 font-bold text-[#0d0e12] text-sm shadow-lg shadow-emerald-500/20 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {isFetchingOffers ? (
+                    <>
+                      <RefreshCw size={18} className="animate-spin" />
+                      Iniciando processamento...
+                    </>
+                  ) : (
+                    <>
+                      <Tag size={18} />
+                      Buscar e Enfileirar Ofertas
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         )}
 
