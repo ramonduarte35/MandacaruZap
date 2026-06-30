@@ -91,6 +91,11 @@ JWT_SECRET="J@r3B!q8zXmP2sLwVnK#9dRtYu6fHcAe"
 WORKER_SECRET="Wk7@mN3xQp5vRtL2bYs!eAhGcJ8fDzKn"
 FRONTEND_URL="http://localhost:3000,https://mandacaruzap.ramonduarte.com.br"
 
+# Usuário inicial criado pelo seed
+SEED_EMAIL="ramonmduarte1@gmail.com"
+SEED_PASSWORD="arpus."
+SEED_NAME="Ramon Duarte"
+
 # Configurações do Frontend
 NEXT_PUBLIC_API_URL="https://mandacaruzap.ramonduarte.com.br"
 EOF
