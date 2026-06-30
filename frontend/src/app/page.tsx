@@ -81,6 +81,16 @@ export default function Dashboard() {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [currentUser, setCurrentUser] = useState<{ id: string; email: string; name: string | null } | null>(null);
 
+  // Estados de Cadastro
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [registerName, setRegisterName] = useState('');
+  const [registerEmail, setRegisterEmail] = useState('');
+  const [registerPassword, setRegisterPassword] = useState('');
+  const [registerConfirmPassword, setRegisterConfirmPassword] = useState('');
+  const [registerError, setRegisterError] = useState<string | null>(null);
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [registerSuccess, setRegisterSuccess] = useState<{ trialEndsAt: string } | null>(null);
+
   const [activeTab, setActiveTab] = useState<'overview' | 'instances' | 'mapping' | 'manual' | 'queue' | 'logs' | 'settings' | 'offers'>('overview');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
@@ -263,6 +273,46 @@ export default function Dashboard() {
       setLoginError('Não foi possível conectar ao servidor.');
     } finally {
       setIsLoggingIn(false);
+    }
+  };
+
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setRegisterError(null);
+
+    if (registerPassword !== registerConfirmPassword) {
+      setRegisterError('As senhas não coincidem.');
+      return;
+    }
+    if (registerPassword.length < 8) {
+      setRegisterError('A senha deve ter pelo menos 8 caracteres.');
+      return;
+    }
+
+    setIsRegistering(true);
+    try {
+      const res = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: registerName, email: registerEmail, password: registerPassword })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setRegisterError(data.error || 'Erro ao criar conta.');
+        return;
+      }
+      // Auto-login após cadastro
+      localStorage.setItem('token', data.token);
+      localStorage.setItem('user', JSON.stringify(data.user));
+      setToken(data.token);
+      setCurrentUser(data.user);
+      setRegisterSuccess({ trialEndsAt: data.plan?.trialEndsAt });
+      // Pequeno delay para mostrar mensagem de sucesso antes de entrar no painel
+      setTimeout(() => setIsAuthenticated(true), 1800);
+    } catch (err) {
+      setRegisterError('Não foi possível conectar ao servidor.');
+    } finally {
+      setIsRegistering(false);
     }
   };
 
@@ -757,12 +807,12 @@ export default function Dashboard() {
     if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-[#090a0f] text-gray-100 flex flex-col justify-center items-center p-4 relative overflow-hidden">
-        {/* Fundo Decorativo Gradiente */}
+        {/* Fundo Decorativo */}
         <div className="absolute top-[-20%] left-[-20%] w-[60%] h-[60%] rounded-full bg-emerald-500/10 blur-[120px] pointer-events-none" />
         <div className="absolute bottom-[-20%] right-[-20%] w-[60%] h-[60%] rounded-full bg-[#222533]/20 blur-[120px] pointer-events-none" />
 
         <div className="w-full max-w-md">
-          {/* Logo / Header */}
+          {/* Logo */}
           <div className="flex flex-col items-center gap-2 mb-8 text-center">
             <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-600 to-emerald-400 flex items-center justify-center shadow-lg shadow-emerald-500/20 text-[#0d0e12] font-black text-xl">
               M
@@ -770,71 +820,225 @@ export default function Dashboard() {
             <h1 className="font-extrabold text-2xl tracking-wider bg-gradient-to-r from-gray-100 to-gray-400 bg-clip-text text-transparent font-mono">
               MandacaruZap
             </h1>
-            <p className="text-xs text-gray-500 font-medium">WhatsApp Affiliate SaaS Portal</p>
+            <p className="text-xs text-gray-500 font-medium">WhatsApp Affiliate Automation</p>
           </div>
 
-          {/* Card de Login */}
+          {/* Toggle Login / Cadastro */}
+          <div className="flex bg-[#0d0e12] border border-gray-800 rounded-2xl p-1 mb-6">
+            <button
+              id="auth-tab-login"
+              onClick={() => { setAuthMode('login'); setLoginError(null); setRegisterError(null); }}
+              className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+                authMode === 'login'
+                  ? 'bg-[#14161f] text-emerald-400 shadow-md'
+                  : 'text-gray-500 hover:text-gray-300'
+              }`}
+            >
+              Entrar
+            </button>
+            <button
+              id="auth-tab-register"
+              onClick={() => { setAuthMode('register'); setLoginError(null); setRegisterError(null); }}
+              className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+                authMode === 'register'
+                  ? 'bg-[#14161f] text-emerald-400 shadow-md'
+                  : 'text-gray-500 hover:text-gray-300'
+              }`}
+            >
+              Criar conta
+            </button>
+          </div>
+
+          {/* Card */}
           <div className="bg-[#14161f] border border-gray-800 rounded-3xl p-8 shadow-2xl relative overflow-hidden backdrop-blur-md">
             <div className="absolute top-0 left-0 w-full h-[3px] bg-gradient-to-r from-emerald-500 to-emerald-300" />
-            
-            <h2 className="text-xl font-bold mb-1">Acessar sua conta</h2>
-            <p className="text-xs text-gray-400 mb-6">Entre com seu e-mail e senha padrão fornecidos.</p>
 
-            {loginError && (
-              <div className="mb-6 flex items-center gap-3 p-4 bg-red-500/10 border border-red-500/20 rounded-2xl text-red-400 text-xs font-semibold animate-fadeIn">
-                <AlertCircle size={16} className="flex-shrink-0" />
-                <span>{loginError}</span>
-              </div>
+            {/* ---- MODO LOGIN ---- */}
+            {authMode === 'login' && (
+              <>
+                <h2 className="text-xl font-bold mb-1">Acessar sua conta</h2>
+                <p className="text-xs text-gray-400 mb-6">Entre com seu e-mail e senha.</p>
+
+                {loginError && (
+                  <div className="mb-5 flex items-center gap-3 p-4 bg-red-500/10 border border-red-500/20 rounded-2xl text-red-400 text-xs font-semibold animate-fadeIn">
+                    <AlertCircle size={16} className="flex-shrink-0" />
+                    <span>{loginError}</span>
+                  </div>
+                )}
+
+                <form onSubmit={handleLogin} className="space-y-5">
+                  <div>
+                    <label className="block text-xs text-gray-400 font-semibold mb-2">E-mail</label>
+                    <input
+                      id="login-email"
+                      type="email"
+                      placeholder="seu@email.com"
+                      value={loginEmail}
+                      onChange={(e) => setLoginEmail(e.target.value)}
+                      required
+                      autoComplete="email"
+                      className="w-full bg-[#0d0e12] border border-gray-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all text-gray-200"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-400 font-semibold mb-2">Senha</label>
+                    <input
+                      id="login-password"
+                      type="password"
+                      placeholder="••••••••"
+                      value={loginPassword}
+                      onChange={(e) => setLoginPassword(e.target.value)}
+                      required
+                      autoComplete="current-password"
+                      className="w-full bg-[#0d0e12] border border-gray-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all text-gray-200"
+                    />
+                  </div>
+                  <div className="pt-2">
+                    <button
+                      id="login-submit"
+                      type="submit"
+                      disabled={isLoggingIn}
+                      className="w-full py-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 font-bold text-[#0d0e12] text-sm shadow-lg shadow-emerald-500/15 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                    >
+                      {isLoggingIn ? (
+                        <><RefreshCw size={16} className="animate-spin" /><span>Verificando...</span></>
+                      ) : (
+                        <span>Acessar Painel</span>
+                      )}
+                    </button>
+                  </div>
+                </form>
+
+                <p className="text-center text-xs text-gray-600 mt-5">
+                  Ainda não tem conta?{' '}
+                  <button onClick={() => setAuthMode('register')} className="text-emerald-400 hover:underline font-semibold">Crie uma grátis</button>
+                </p>
+              </>
             )}
 
-            <form onSubmit={handleLogin} className="space-y-5">
-              <div>
-                <label className="block text-xs text-gray-400 font-semibold mb-2">E-mail</label>
-                <input 
-                  type="email" 
-                  placeholder="admin@mandacaruzap.com"
-                  value={loginEmail}
-                  onChange={(e) => setLoginEmail(e.target.value)}
-                  required
-                  className="w-full bg-[#0d0e12] border border-gray-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all text-gray-200"
-                />
-              </div>
+            {/* ---- MODO CADASTRO ---- */}
+            {authMode === 'register' && (
+              <>
+                <h2 className="text-xl font-bold mb-1">Comece grátis</h2>
+                <p className="text-xs text-gray-400 mb-6">
+                  7 dias de trial completo. Sem cartão de crédito.
+                </p>
 
-              <div>
-                <label className="block text-xs text-gray-400 font-semibold mb-2">Senha</label>
-                <input 
-                  type="password" 
-                  placeholder="••••••••"
-                  value={loginPassword}
-                  onChange={(e) => setLoginPassword(e.target.value)}
-                  required
-                  className="w-full bg-[#0d0e12] border border-gray-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all text-gray-200"
-                />
-              </div>
+                {/* Banner de sucesso pós-cadastro */}
+                {registerSuccess && (
+                  <div className="mb-5 flex flex-col gap-1 p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl text-emerald-400 text-xs font-semibold animate-fadeIn">
+                    <span className="text-base">🎉 Conta criada com sucesso!</span>
+                    <span className="font-normal text-emerald-300">Entrando no painel...</span>
+                  </div>
+                )}
 
-              <div className="pt-2">
-                <button 
-                  type="submit"
-                  disabled={isLoggingIn}
-                  className="w-full py-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 font-bold text-[#0d0e12] text-sm shadow-lg shadow-emerald-500/15 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-                >
-                  {isLoggingIn ? (
-                    <>
-                      <RefreshCw size={16} className="animate-spin" />
-                      <span>Verificando...</span>
-                    </>
-                  ) : (
-                    <span>Acessar Painel</span>
+                {registerError && (
+                  <div className="mb-5 flex items-center gap-3 p-4 bg-red-500/10 border border-red-500/20 rounded-2xl text-red-400 text-xs font-semibold animate-fadeIn">
+                    <AlertCircle size={16} className="flex-shrink-0" />
+                    <span>{registerError}</span>
+                  </div>
+                )}
+
+                <form onSubmit={handleRegister} className="space-y-4">
+                  <div>
+                    <label className="block text-xs text-gray-400 font-semibold mb-2">Nome <span className="text-gray-600 font-normal">(opcional)</span></label>
+                    <input
+                      id="register-name"
+                      type="text"
+                      placeholder="João Silva"
+                      value={registerName}
+                      onChange={(e) => setRegisterName(e.target.value)}
+                      autoComplete="name"
+                      className="w-full bg-[#0d0e12] border border-gray-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-all text-gray-200"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-400 font-semibold mb-2">E-mail</label>
+                    <input
+                      id="register-email"
+                      type="email"
+                      placeholder="seu@email.com"
+                      value={registerEmail}
+                      onChange={(e) => setRegisterEmail(e.target.value)}
+                      required
+                      autoComplete="email"
+                      className="w-full bg-[#0d0e12] border border-gray-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-all text-gray-200"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-400 font-semibold mb-2">Senha</label>
+                      <input
+                        id="register-password"
+                        type="password"
+                        placeholder="Mín. 8 caracteres"
+                        value={registerPassword}
+                        onChange={(e) => setRegisterPassword(e.target.value)}
+                        required
+                        autoComplete="new-password"
+                        className="w-full bg-[#0d0e12] border border-gray-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-all text-gray-200"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-400 font-semibold mb-2">Confirmar</label>
+                      <input
+                        id="register-confirm-password"
+                        type="password"
+                        placeholder="Repita a senha"
+                        value={registerConfirmPassword}
+                        onChange={(e) => setRegisterConfirmPassword(e.target.value)}
+                        required
+                        autoComplete="new-password"
+                        className={`w-full bg-[#0d0e12] border rounded-xl px-4 py-3 text-sm focus:outline-none transition-all text-gray-200 ${
+                          registerConfirmPassword.length > 0
+                            ? registerConfirmPassword === registerPassword ? 'border-emerald-500/60' : 'border-red-500/50'
+                            : 'border-gray-800 focus:border-emerald-500'
+                        }`}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Indicador de força da senha */}
+                  {registerPassword.length > 0 && (
+                    <div className="flex items-center gap-1.5">
+                      {[...Array(4)].map((_, i) => {
+                        const s = registerPassword.length >= 8 ? (registerPassword.length >= 12 ? ((/[A-Z]/.test(registerPassword) && /[0-9]/.test(registerPassword)) ? 4 : 3) : 2) : 1;
+                        return <div key={i} className={`h-1 flex-1 rounded-full transition-all ${i < s ? (s === 1 ? 'bg-red-500' : s === 2 ? 'bg-amber-500' : s === 3 ? 'bg-yellow-400' : 'bg-emerald-500') : 'bg-gray-700'}`} />;
+                      })}
+                      <span className="text-[10px] text-gray-500 ml-1">
+                        {registerPassword.length < 8 ? 'Fraca' : registerPassword.length < 12 ? 'Média' : (/[A-Z]/.test(registerPassword) && /[0-9]/.test(registerPassword)) ? 'Forte' : 'Boa'}
+                      </span>
+                    </div>
                   )}
-                </button>
-              </div>
-            </form>
+
+                  <div className="pt-2">
+                    <button
+                      id="register-submit"
+                      type="submit"
+                      disabled={isRegistering || registerPassword !== registerConfirmPassword || registerPassword.length < 8}
+                      className="w-full py-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 font-bold text-[#0d0e12] text-sm shadow-lg shadow-emerald-500/15 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    >
+                      {isRegistering ? (
+                        <><RefreshCw size={16} className="animate-spin" /><span>Criando conta...</span></>
+                      ) : (
+                        <span>Criar conta grátis → 7 dias trial</span>
+                      )}
+                    </button>
+                  </div>
+                </form>
+
+                <p className="text-center text-xs text-gray-600 mt-5">
+                  Já tem conta?{' '}
+                  <button onClick={() => setAuthMode('login')} className="text-emerald-400 hover:underline font-semibold">Entrar</button>
+                </p>
+              </>
+            )}
           </div>
 
-          {/* Dica / Footer */}
-          <div className="mt-8 text-center">
+          {/* Footer */}
+          <div className="mt-6 text-center">
             <p className="text-[10px] text-gray-600">
-              Caso seja o primeiro acesso, utilize o login padrão fornecido no seed do banco de dados.
+              Ao criar sua conta, você concorda com os Termos de Uso e a Política de Privacidade.
             </p>
           </div>
         </div>

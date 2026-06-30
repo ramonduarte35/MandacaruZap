@@ -115,6 +115,77 @@ app.get('/health', async (req, res) => {
   }
 });
 
+// 0. Cadastro de novo usuário — com rate limit
+const registerRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hora
+  max: 5,                    // máx 5 cadastros por IP por hora
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Muitas tentativas de cadastro. Tente novamente em 1 hora.' }
+});
+
+app.post('/api/auth/register', registerRateLimiter, async (req, res) => {
+  const { name, email, password } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).json({ error: 'E-mail e senha são obrigatórios.' });
+  }
+  if (typeof email !== 'string' || typeof password !== 'string') {
+    return res.status(400).json({ error: 'Dados inválidos.' });
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ error: 'E-mail inválido.' });
+  }
+  if (password.length < 8) {
+    return res.status(400).json({ error: 'A senha deve ter pelo menos 8 caracteres.' });
+  }
+  if (password.length > 128) {
+    return res.status(400).json({ error: 'A senha é muito longa.' });
+  }
+  if (name && (typeof name !== 'string' || name.trim().length > 100)) {
+    return res.status(400).json({ error: 'Nome inválido.' });
+  }
+
+  try {
+    const existing = await prisma.user.findUnique({ where: { email: email.toLowerCase().trim() } });
+    if (existing) {
+      // Resposta genérica para não revelar quais e-mails existem
+      return res.status(409).json({ error: 'Não foi possível criar a conta com este e-mail.' });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 12);
+
+    // Trial de 7 dias a partir do momento do cadastro
+    const trialEndsAt = new Date();
+    trialEndsAt.setDate(trialEndsAt.getDate() + 7);
+
+    const user = await prisma.user.create({
+      data: {
+        email: email.toLowerCase().trim(),
+        passwordHash,
+        name: name ? name.trim() : null,
+        plan: 'TRIAL',
+        trialEndsAt,
+      }
+    });
+
+    // Auto-login: retorna token JWT igual ao login normal
+    const token = jwt.sign({ userId: user.id }, JWT_SECRET as string, { expiresIn: '7d' });
+
+    console.log(`[Register] Novo usuário cadastrado: ${user.email} (trial até ${trialEndsAt.toISOString()})`);
+
+    res.status(201).json({
+      success: true,
+      token,
+      user: { id: user.id, email: user.email, name: user.name },
+      plan: { plan: user.plan, trialEndsAt: user.trialEndsAt }
+    });
+  } catch (error) {
+    console.error('[Register] Error:', error);
+    res.status(500).json({ error: 'Erro interno do servidor.' });
+  }
+});
+
 // 0. Autenticação (Login) — com rate limit
 app.post('/api/auth/login', loginRateLimiter, async (req, res) => {
   const { email, password } = req.body;
