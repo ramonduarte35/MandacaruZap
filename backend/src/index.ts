@@ -38,9 +38,22 @@ const prisma = new PrismaClient();
 const PORT = process.env.PORT || 5050;
 
 // --- Item 4: CORS restrito à origem do frontend ---
-const allowedOrigin = process.env.FRONTEND_URL || 'http://localhost:3000';
+// Suporta múltiplas origens separadas por vírgula em FRONTEND_URL
+// Ex: FRONTEND_URL=http://localhost:3000,https://mandacaruzap.ramonduarte.com.br
+const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:3000')
+  .split(',')
+  .map(o => o.trim())
+  .filter(Boolean);
+
 app.use(cors({
-  origin: allowedOrigin,
+  origin: (origin, callback) => {
+    // Permitir requisições sem origin (ex: curl, Postman, same-origin)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error(`CORS: origem não permitida: ${origin}`));
+  },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
@@ -354,7 +367,7 @@ app.get('/api/logs', async (req, res) => {
 app.get('/api/dashboard/stats', async (req, res) => {
   const userId = req.userId || '';
   try {
-    const totalCaptured = await prisma.log.count({
+    const totalCaptured = await prisma.messageQueue.count({
       where: { userId }
     });
 
@@ -384,27 +397,27 @@ app.get('/api/dashboard/stats', async (req, res) => {
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
 
-    const capturedLast24h = await prisma.log.count({
+    const capturedLast24h = await prisma.messageQueue.count({
       where: { userId, createdAt: { gte: yesterday } }
     });
 
-    const capturedMeli = await prisma.log.count({
+    const capturedMeli = await prisma.messageQueue.count({
       where: { userId, OR: [{ originalUrl: { contains: 'mercadolivre' } }, { originalUrl: { contains: 'mlb' } }] }
     });
-    const capturedShopee = await prisma.log.count({
+    const capturedShopee = await prisma.messageQueue.count({
       where: { userId, OR: [{ originalUrl: { contains: 'shopee' } }, { originalUrl: { contains: 'shope.ee' } }] }
     });
-    const capturedAmazon = await prisma.log.count({
+    const capturedAmazon = await prisma.messageQueue.count({
       where: { userId, OR: [{ originalUrl: { contains: 'amazon' } }, { originalUrl: { contains: 'amzn.to' } }] }
     });
 
-    const sentMeli = await prisma.log.count({
+    const sentMeli = await prisma.messageQueue.count({
       where: { userId, status: 'SENT', OR: [{ originalUrl: { contains: 'mercadolivre' } }, { originalUrl: { contains: 'mlb' } }] }
     });
-    const sentShopee = await prisma.log.count({
+    const sentShopee = await prisma.messageQueue.count({
       where: { userId, status: 'SENT', OR: [{ originalUrl: { contains: 'shopee' } }, { originalUrl: { contains: 'shope.ee' } }] }
     });
-    const sentAmazon = await prisma.log.count({
+    const sentAmazon = await prisma.messageQueue.count({
       where: { userId, status: 'SENT', OR: [{ originalUrl: { contains: 'amazon' } }, { originalUrl: { contains: 'amzn.to' } }] }
     });
 
@@ -780,5 +793,5 @@ app.get('/api/affiliate/meli-tags', async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Backend API running on port ${PORT}`);
-  console.log(`CORS permitido para origem: ${allowedOrigin}`);
+  console.log(`CORS permitido para origens: ${allowedOrigins.join(', ')}`);
 });
