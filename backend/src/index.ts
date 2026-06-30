@@ -153,6 +153,48 @@ app.post('/api/auth/login', loginRateLimiter, async (req, res) => {
   }
 });
 
+// 0b. Alterar Senha do Usuário (requer autenticação + senha atual)
+app.post('/api/auth/change-password', requireAuth, async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ error: 'Senha atual e nova senha são obrigatórias.' });
+  }
+  if (typeof currentPassword !== 'string' || typeof newPassword !== 'string') {
+    return res.status(400).json({ error: 'Dados inválidos.' });
+  }
+  if (newPassword.length < 8) {
+    return res.status(400).json({ error: 'A nova senha deve ter pelo menos 8 caracteres.' });
+  }
+  if (newPassword.length > 128) {
+    return res.status(400).json({ error: 'A nova senha é muito longa.' });
+  }
+
+  const userId = req.userId || '';
+  try {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      return res.status(404).json({ error: 'Usuário não encontrado.' });
+    }
+
+    const isMatch = await bcrypt.compare(currentPassword, user.passwordHash);
+    if (!isMatch) {
+      return res.status(401).json({ error: 'Senha atual incorreta.' });
+    }
+
+    const newHash = await bcrypt.hash(newPassword, 12);
+    await prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash: newHash }
+    });
+
+    res.json({ success: true, message: 'Senha alterada com sucesso!' });
+  } catch (error) {
+    console.error('[ChangePassword] Error:', error);
+    res.status(500).json({ error: 'Erro interno do servidor.' });
+  }
+});
+
 // 2. Listar instâncias do WhatsApp do usuário
 app.get('/api/instances', async (req, res) => {
   try {
