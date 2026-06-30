@@ -8,7 +8,7 @@ import { broadcastMessage } from '../broadcaster/sender.js';
 const lastAlertMap = new Map<string, number>();
 
 // Expressões regulares para links da Amazon, Shopee e Mercado Livre
-const SUPPORTED_DOMAINS_REGEX = /(https?:\/\/[^\s]*?(?:amazon\.com\.br|amzn\.to|shopee\.com\.br|shp\.ee|mercadolivre\.com\.br|mercadolivre\.co|produto\.mercadolivre\.com\.br|meli\.la)[^\s]*)/gi;
+const SUPPORTED_DOMAINS_REGEX = /(https?:\/\/[^\s]*?(?:amazon\.com\.br|amzn\.to|link\.amazon(?:\.com\.br)?|shopee\.com\.br|shp\.ee|mercadolivre\.com\.br|mercadolivre\.co|produto\.mercadolivre\.com\.br|meli\.la)[^\s]*)/gi;
 
 /**
    * Extrai o texto contido em uma mensagem do Baileys
@@ -172,7 +172,7 @@ export async function handleIncomingMessage(
         const expandedUrl = await expandUrl(originalUrl);
 
         // Verificar se os marketplaces correspondentes estão ativados no usuário
-        const isAmazon = expandedUrl.includes('amazon.com.br') || originalUrl.includes('amzn.to');
+        const isAmazon = expandedUrl.includes('amazon.com.br') || originalUrl.includes('amzn.to') || originalUrl.includes('link.amazon');
         const isShopee = expandedUrl.includes('shopee.com.br') || originalUrl.includes('shp.ee');
         const isMeli = expandedUrl.includes('mercadolivre.com.br') || expandedUrl.includes('meli.la') || originalUrl.includes('meli.la');
 

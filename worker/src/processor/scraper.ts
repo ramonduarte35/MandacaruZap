@@ -52,7 +52,7 @@ export async function scrapeProductData(url: string, cookie?: string | null): Pr
     let pixPrice: string | undefined;
 
     // Se for Amazon, tenta seletores específicos adicionais se o OG falhar ou vier genérico
-    if (cleanUrl.includes('amazon.com.br') || cleanUrl.includes('amzn.to')) {
+    if (cleanUrl.includes('amazon.com.br') || cleanUrl.includes('amzn.to') || cleanUrl.includes('link.amazon')) {
       if (!price) {
         price = $('.a-price .a-offscreen').first().text() || 
                 $('.a-price-whole').first().text() || 

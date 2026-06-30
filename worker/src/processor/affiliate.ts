@@ -125,7 +125,7 @@ interface UserAffiliateConfig {
  * Resolve encurtadores e redirecionamentos para obter a URL final real do produto.
  */
 export async function expandUrl(url: string): Promise<string> {
-  const shortDomains = ['amzn.to', 'shp.ee', 'mercadolivre.co', 'meli.la', 't.co', 'bit.ly', 'tinyurl.com'];
+  const shortDomains = ['amzn.to', 'link.amazon', 'shp.ee', 'mercadolivre.co', 'meli.la', 't.co', 'bit.ly', 'tinyurl.com'];
   const parsedUrl = new URL(url);
 
   if (!shortDomains.some(domain => parsedUrl.hostname.includes(domain))) {
@@ -193,19 +193,20 @@ export async function convertToAffiliateLink(
   const hostname = parsedUrl.hostname.toLowerCase();
 
   // --- AMAZON ---
-  if (hostname.includes('amazon.com.br')) {
+  if (hostname.includes('amazon.com.br') || hostname.includes('link.amazon')) {
     const amazonTag = user.amazonId || 'default-amazon-20'; // Tag padrão ou do usuário
     
-    // Procura o ASIN na URL (10 caracteres alfanuméricos começando por B ou números)
-    const asinMatch = expandedUrl.match(/\/([A-Z0-9]{10})(?:[\/?]|$)/i);
+    // Procura o ASIN na URL (/dp/XXXXXXX ou /gp/product/XXXXXXX)
+    const asinMatch = expandedUrl.match(/\/(?:dp|gp\/product)\/([A-Z0-9]{10})(?:[\/?]|$)/i);
     
     if (asinMatch && asinMatch[1]) {
       const asin = asinMatch[1];
-      return `https://www.amazon.com.br/dp/${asin}?tag=${amazonTag}`;
+      return `https://www.amazon.com.br/dp/${asin}?tag=${amazonTag}&linkCode=ll2&ref_=as_li_ss_tl`;
     }
     
-    // Fallback: Apenas anexa a tag se não achar o ASIN estruturado
+    // Fallback: apenas sobrescreve/acrescenta a tag e linkCode sem quebrar a URL original
     parsedUrl.searchParams.set('tag', amazonTag);
+    parsedUrl.searchParams.set('linkCode', 'll2');
     return parsedUrl.toString();
   }
 
