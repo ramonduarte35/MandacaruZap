@@ -89,10 +89,10 @@ REDIS_URL="redis://localhost:6379"
 PORT=5050
 JWT_SECRET="J@r3B!q8zXmP2sLwVnK#9dRtYu6fHcAe"
 WORKER_SECRET="Wk7@mN3xQp5vRtL2bYs!eAhGcJ8fDzKn"
-FRONTEND_URL="http://localhost:3000"
+FRONTEND_URL="http://localhost:3000,https://mandacaruzap.ramonduarte.com.br"
 
 # Configurações do Frontend
-NEXT_PUBLIC_API_URL="http://localhost:5050"
+NEXT_PUBLIC_API_URL="https://mandacaruzap.ramonduarte.com.br"
 EOF
   echo "Arquivo .env criado com as credenciais padrão simplificadas do banco local."
 fi
@@ -101,9 +101,9 @@ fi
 cp .env backend/.env
 cp .env worker/.env
 
-if [ ! -f frontend/.env.local ]; then
-  echo "NEXT_PUBLIC_API_URL=http://localhost:5050" > frontend/.env.local
-fi
+# Cria o .env.local do frontend com a URL de produção
+# Este arquivo é ignorado pelo git e garante que o build use o domínio correto
+echo "NEXT_PUBLIC_API_URL=https://mandacaruzap.ramonduarte.com.br" > frontend/.env.local
 
 # 8. Instalar dependências dos serviços
 echo "Instalando dependências do backend, worker e frontend..."
