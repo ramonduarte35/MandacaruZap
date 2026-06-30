@@ -20,7 +20,8 @@ import {
   Tag
 } from 'lucide-react';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5050';
+// As chamadas usam path relativo (/api/...) — o Next.js faz o proxy para o backend
+// via rewrite em next.config.js. Funciona em localhost e produção sem variável de ambiente.
 
 interface Instance {
   id: string;
@@ -178,7 +179,7 @@ export default function Dashboard() {
       ...(activeToken ? { 'Authorization': `Bearer ${activeToken}` } : {})
     };
 
-    const res = await fetch(`${API_URL}${path}`, {
+    const res = await fetch(`${path}`, {
       ...options,
       headers
     });
@@ -196,7 +197,7 @@ export default function Dashboard() {
     setIsLoggingIn(true);
     setLoginError(null);
     try {
-      const res = await fetch(`${API_URL}/api/auth/login`, {
+      const res = await fetch(`/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: loginEmail, password: loginPassword })
