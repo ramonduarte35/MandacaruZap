@@ -15,128 +15,140 @@ model User {
   name           String?
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
-  
+
+  // -------------------------------------------------------
+  // Plano / Assinatura
+  // -------------------------------------------------------
+  // FREE     → sem acesso funcional (conta desativada / trial expirado)
+  // TRIAL    → trial de 7 dias com limites do plano STARTER
+  // STARTER  → plano pago básico  (R$ 49/mês)
+  // PRO      → plano pago médio   (R$ 99/mês)
+  // BUSINESS → plano pago avançado (R$ 199/mês)
+  plan                 String    @default("TRIAL")
+  trialEndsAt          DateTime?           // quando o trial expira (null = não está em trial)
+  planExpiresAt        DateTime?           // quando o plano pago expira (null = sem vencimento definido)
+
+  // Stripe — preenchido ao integrar cobrança (criado agora para evitar migration futura)
+  stripeCustomerId     String?   @unique
+  stripeSubscriptionId String?   @unique
+
   // Configurações de Afiliado
-  amazonId       String?
-  shopeeId       String?
-  mercadolivreId String?
-  mercadolivreChannel String?
-  mercadolivreTool    String?
-  mercadolivreWord    String?
-  mercadolivreCookie  String?
+  amazonId                String?
+  shopeeId                String?
+  mercadolivreId          String?
+  mercadolivreChannel     String?
+  mercadolivreTool        String?
+  mercadolivreWord        String?
+  mercadolivreCookie      String?
   cookieNotificationPhone String?
-  
+
   // Configurações de Escuta/Marketplace
-  listenAmazon       Boolean            @default(true)
-  listenShopee       Boolean            @default(true)
-  listenMercadoLivre Boolean            @default(true)
-  mercadolivreOnlyShort Boolean            @default(false)
-  
+  listenAmazon          Boolean  @default(true)
+  listenShopee          Boolean  @default(true)
+  listenMercadoLivre    Boolean  @default(true)
+  mercadolivreOnlyShort Boolean  @default(false)
+
   // Controle de Envio (Fila & Limites)
-  sendWindowStart    String             @default("08:00")
-  sendWindowEnd      String             @default("18:00")
-  dailyLimit         Int                @default(30)
+  sendWindowStart String  @default("08:00")
+  sendWindowEnd   String  @default("18:00")
+  dailyLimit      Int     @default(30)
 
-  // Configurações de Filtro de Preço Mínimo
-  minPriceAmazon       Float?
-  minPriceShopee       Float?
-  minPriceMeli         Float?
+  // Filtro de Preço Mínimo
+  minPriceAmazon Float?
+  minPriceShopee Float?
+  minPriceMeli   Float?
 
-  // Configurações de Deduplificação
-  enableDeduplication  Boolean            @default(false)
-  deduplicationHours   Int                @default(24)
+  // Deduplificação
+  enableDeduplication Boolean @default(false)
+  deduplicationHours  Int     @default(24)
 
-  // Configurações de Telegram
-  telegramBotToken     String?
+  // Telegram
+  telegramBotToken String?
 
-  // Controle de Menções
-  mentionEveryone      Boolean            @default(true)
+  // Menções
+  mentionEveryone Boolean @default(true)
 
   // Relações
-  instances      WhatsappInstance[]
-  mappings       GroupMapping[]
-  logs           Log[]
-  messageQueues  MessageQueue[]
+  instances     WhatsappInstance[]
+  mappings      GroupMapping[]
+  logs          Log[]
+  messageQueues MessageQueue[]
 }
 
 model WhatsappInstance {
-  id          String         @id @default(uuid())
-  name        String         // Identificador amigável da conexão (ex: "Número Comercial 1")
-  phone       String?        // Número do WhatsApp associado após a conexão
-  status      String         @default("DISCONNECTED")
-  qrCode      String?        // QR Code atual em formato Base64 ou texto bruto
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
-  
+  id        String   @id @default(uuid())
+  name      String   // Identificador amigável da conexão (ex: "Número Comercial 1")
+  phone     String?  // Número do WhatsApp associado após a conexão
+  status    String   @default("DISCONNECTED")
+  qrCode    String?  // QR Code atual em formato Base64 ou texto bruto
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   // Relação com Usuário
-  userId      String
-  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   // Mapeamentos associados a esta instância de disparo/escuta
-  mappings    GroupMapping[]
-  logs        Log[]
+  mappings      GroupMapping[]
+  logs          Log[]
   messageQueues MessageQueue[]
 }
 
 model GroupMapping {
-  id              String           @id @default(uuid())
-  name            String           // Nome da regra de mapeamento
-  sourceGroupId   String           // ID do grupo de origem (JID do WhatsApp, ex: "12036302@g.us")
-  sourceGroupName String?          // Nome amigável do grupo de origem
-  destGroupIds    String           // Lista de IDs dos grupos de destino (JIDs, separados por vírgula)
-  isActive        Boolean          @default(true)
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  
+  id              String   @id @default(uuid())
+  name            String   // Nome da regra de mapeamento
+  sourceGroupId   String   // ID do grupo de origem (JID do WhatsApp, ex: "12036302@g.us")
+  sourceGroupName String?  // Nome amigável do grupo de origem
+  destGroupIds    String   // Lista de IDs dos grupos de destino (JIDs, separados por vírgula)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
   // Relações
-  userId          String
-  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  instanceId      String
-  instance        WhatsappInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  instanceId String
+  instance   WhatsappInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
 }
 
 model Log {
-  id              String           @id @default(uuid())
-  originalUrl     String
-  convertedUrl    String?
-  title           String?
-  price           String?
-  imageUrl        String?
-  status          String           @default("CAPTURED")
-  errorMessage    String?
-  sourceGroup     String?          // ID do grupo de origem se capturado automaticamente
-  destGroups      String?          // IDs dos grupos para onde foi enviado (separados por vírgula)
-  createdAt       DateTime         @default(now())
-  
+  id           String   @id @default(uuid())
+  originalUrl  String
+  convertedUrl String?
+  title        String?
+  price        String?
+  imageUrl     String?
+  status       String   @default("CAPTURED")
+  errorMessage String?
+  sourceGroup  String?  // ID do grupo de origem se capturado automaticamente
+  destGroups   String?  // IDs dos grupos para onde foi enviado (separados por vírgula)
+  createdAt    DateTime @default(now())
+
   // Relações
-  userId          String
-  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  instanceId      String
-  instance        WhatsappInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  instanceId String
+  instance   WhatsappInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
 }
 
 model MessageQueue {
-  id              String           @id @default(uuid())
-  originalUrl     String
-  convertedUrl    String?
-  title           String?
-  price           String?
-  imageUrl        String?
-  copy            String           // O texto formatado da copy a ser enviado
-  status          String           @default("PENDING") // PENDING, SENT, FAILED, EXPIRED
-  errorMessage    String?
-  sourceGroup     String?          // Grupo de origem
-  destGroups      String           // Grupos de destino separados por vírgula
-  createdAt       DateTime         @default(now())
-  sentAt          DateTime?
-  
-  // Relações
-  userId          String
-  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  instanceId      String
-  instance        WhatsappInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
-}
+  id           String    @id @default(uuid())
+  originalUrl  String
+  convertedUrl String?
+  title        String?
+  price        String?
+  imageUrl     String?
+  copy         String    // O texto formatado da copy a ser enviado
+  status       String    @default("PENDING") // PENDING, SENT, FAILED, EXPIRED
+  errorMessage String?
+  sourceGroup  String?   // Grupo de origem
+  destGroups   String    // Grupos de destino separados por vírgula
+  createdAt    DateTime  @default(now())
+  sentAt       DateTime?
 
+  // Relações
+  userId     String
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  instanceId String
+  instance   WhatsappInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+}
